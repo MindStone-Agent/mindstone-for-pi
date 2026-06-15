@@ -63,6 +63,15 @@ Embedded memory and auto recall must be part of onboarding/install.
 - migration/import from MS4CC
 - project-local vs global setup options
 
+## v0.7 — Synapse communication
+
+- MS4CC Synapse reference client adapted to MS4PI data root
+- native Pi `/synapse-*` commands
+- `synapse_post`, `synapse_check`, and `synapse_await` tools
+- per-turn digest via Pi `before_agent_start`
+- live auth/digest validation as Slate
+- Pi scheduler/warm-loop equivalent for continuous watch parity
+
 ## v1.0 — public usable release
 - documented install from GitHub
 - stable data layout

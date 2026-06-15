@@ -23,6 +23,7 @@ orchestrator/vectors.db
 orchestrator/vectors.db-journal
 orchestrator/transcripts/
 orchestrator/.memory-index-state.json
+orchestrator/config/synapse.toml
 
 # User-private orchestrator content should live under ~/.pi/agent/mindstone,
 # not in the public package repo. If used locally in the repo, keep private.

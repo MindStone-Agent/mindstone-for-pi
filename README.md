@@ -99,6 +99,34 @@ Planned and/or implemented commands:
 - `/ms-recall-status` — recall/vector status check
 - `/ms-recall-backfill` — memory/transcript embedding backfill
 - `/ms-recall-search <query>` — semantic recall query
+- `/synapse-setup` — configure the optional Synapse client for this Pi/MindStone instance
+- `/synapse-activate` / `/synapse-deactivate` — toggle per-turn Synapse digest surfacing
+- `/synapse-status` — show config, auth, active flag, and cursor state
+- `/synapse-check [channel]` — read recent Synapse messages
+- `/synapse-post <channel> <body>` — post to a Synapse channel
+- `/synapse-watch` — one-shot Synapse poll for Pi v1
+
+Tools:
+
+- `synapse_post` — post to a channel when explicitly appropriate
+- `synapse_check` — read recent channel messages
+- `synapse_await` — wait for a matching reply after posting a question
+
+## Synapse client
+
+MS4PI includes an optional Synapse reference client adapted from MS4CC. Config lives under the private Pi MindStone data root:
+
+```text
+~/.pi/agent/mindstone/orchestrator/config/synapse.toml
+```
+
+Bearer tokens are never committed; they live at:
+
+```text
+~/.synapse/<handle>.token
+```
+
+When active, the Pi extension surfaces Synapse digests during `session_start` and `before_agent_start`, replacing MS4CC's Claude Code hook wiring with native Pi events.
 
 ## Fresh onboarding vs migration
 

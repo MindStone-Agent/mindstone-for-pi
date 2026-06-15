@@ -248,6 +248,8 @@ Implemented/scaffolded:
 - Pi `session_compact` handoff replay flag + deferred recall backfill
 - `/ms-end-session` archive + tail + backfill/status command
 - approved LOG append tool for checkpoint/role-span entries
+- Synapse Python reference client copied/adapted from MS4CC
+- native Pi Synapse extension commands/tools/events replacing Claude Code slash-command/hook surfaces
 
 Still to complete:
 
@@ -255,3 +257,5 @@ Still to complete:
 - robust validation across Pi session replacement/resume/fork edge cases
 - context-capacity danger-zone trigger equivalent, if Pi exposes enough usage data
 - broader safety guard testing across built-in and custom mutating tools
+- live Synapse setup/authentication as Slate and per-turn digest validation
+- Pi warm-loop/scheduler equivalent for `/synapse-watch` parity
