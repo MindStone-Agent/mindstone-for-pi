@@ -37,6 +37,22 @@ MS4PI v1 does not require true subagents or Pi SDK worker sessions. Use role ado
 
 Subagents can be added later as an optional layer.
 
+## Embedded memory and auto recall
+
+Embedded memory and prompt-time auto recall are core features of MS4PI.
+
+Onboarding is not complete just because `IDENTITY.md` and `USER.md` exist. A full install should also:
+
+- check embedding provider/key availability
+- initialize or verify `vectors.db`
+- backfill memory files into the vector store
+- report recall status honestly
+- inject relevant recall snippets on each user prompt when semantic recall is active
+
+Until semantic recall is implemented and verified, describe the system as file-backed identity/context with text-search memory fallback. Do not claim full recall is working.
+
+See `docs/RECALL_ARCHITECTURE.md`.
+
 ## Memory schema
 
 Memory files use the MS4CC schema:

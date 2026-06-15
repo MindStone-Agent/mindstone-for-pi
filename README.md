@@ -11,10 +11,21 @@ This package gives a Pi instance:
 - onboarding templates for fresh identity formation
 - `/act-as` role adoption instead of mandatory subagents
 - checkpoint-oriented memory discipline
+- embedded memory and prompt-time semantic recall (planned; text-search fallback exists first)
 
 ## Status
 
 Early implementation scaffold. The goal is to keep the file structure and instructions as close to MS4CC as possible while swapping Claude Code hooks for Pi extension events.
+
+Current state:
+
+- identity/user/log file onboarding: scaffolded
+- role adoption: scaffolded
+- file-backed memory: scaffolded
+- text memory search: scaffolded
+- embedded semantic recall: designed, not yet implemented
+
+Do not claim semantic recall is active until `/ms-recall-status` and a prompt-time recall test verify it.
 
 ## Install locally while developing
 
@@ -64,6 +75,9 @@ Planned and/or implemented commands:
 - `/ms-checkpoint` — draft a checkpoint entry for approval
 - `/act-as <role>` — load a role directive for direct work
 - `/end-role` — close the adopted role and run attribution audit
+- `/ms-recall-status` — planned recall/vector status check
+- `/ms-recall-backfill` — planned memory/transcript embedding backfill
+- `/ms-recall-search <query>` — planned semantic recall query
 
 ## Fresh onboarding vs migration
 
@@ -72,6 +86,25 @@ Recommended default: **fresh onboard**.
 For a new Pi substrate, do not copy Cairn as-is. Use MS4CC/Cairn as lineage and reference implementation, but let this Pi instance author its own `IDENTITY.md`.
 
 Migration can be supported later for users who intentionally want to bring an existing identity over.
+
+## Embedded memory and auto recall
+
+Embedded semantic recall should be part of onboarding/install, not an afterthought.
+
+The intended flow is:
+
+```text
+/ms-init
+/ms-onboard
+/ms-recall-status
+/ms-recall-backfill
+```
+
+If an embedding provider/key is missing, MS4PI should report degraded mode clearly and fall back to file-backed context plus text search. See:
+
+```text
+docs/RECALL_ARCHITECTURE.md
+```
 
 ## Relationship to MS4CC
 
