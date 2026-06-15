@@ -605,13 +605,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("ms-recall-backfill", {
-    description: "Backfill MindStone memory/transcript embeddings into vectors.db",
+    description: "Archive current Pi session, then backfill MindStone memory/transcript embeddings into vectors.db",
     handler: async (_args, ctx) => {
       try {
+        const archive = await archiveSessionFile(sessionFileFromContext(ctx));
         const result = await runRecallScript("indexer.py", ["backfill"], 120_000);
-        const message = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
+        const message = [archive.message, result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
         ctx.ui.notify(result.code === 0 ? "Recall backfill finished" : "Recall backfill failed/degraded", result.code === 0 ? "info" : "warning");
-        pi.sendMessage({ customType: "mindstone-recall", content: message || "No backfill output.", display: true, details: { code: result.code } });
+        pi.sendMessage({ customType: "mindstone-recall", content: message || "No backfill output.", display: true, details: { code: result.code, archive } });
       } catch (error: any) {
         ctx.ui.notify(`Recall backfill failed: ${error?.message ?? error}`, "error");
       }

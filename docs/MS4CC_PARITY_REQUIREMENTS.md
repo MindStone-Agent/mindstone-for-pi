@@ -241,6 +241,7 @@ Implemented/scaffolded:
 - `/ms-recall-search`
 - prompt-time semantic recall attempt in `before_agent_start` when `vectors.db` exists
 - Pi session archive helper using `ctx.sessionManager.getSessionFile()` where available
+- `/ms-recall-backfill` archives the current Pi session before indexing, matching MS4CC's archive-before-embed discipline
 - `.handoff.md` rich handoff command (`/ms-handoff`) plus approved write tool
 - mechanical recent-tail capture from Pi JSONL
 - Pi `session_before_compact` archive + recent-tail refresh
