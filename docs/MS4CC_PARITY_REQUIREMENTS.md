@@ -212,6 +212,8 @@ MS4PI should not claim a checkpoint is complete unless the embed path prints/ver
 MS4PI command set should include:
 
 ```text
+/ms4pi-install
+/ms4pi-update
 /ms-init
 /ms-onboard
 /ms-status

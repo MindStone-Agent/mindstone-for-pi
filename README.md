@@ -27,7 +27,23 @@ Current state:
 
 Do not claim semantic recall is active until `/ms-recall-status` and a prompt-time recall test verify it.
 
-## Install locally while developing
+## Install
+
+Public install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MindStone-Agent/mindstone-for-pi/main/install.sh | bash
+```
+
+The installer clones/updates the framework checkout under:
+
+```text
+~/.pi/agent/mindstone-for-pi
+```
+
+Then installs it as a Pi package and prepares the Python recall/indexing venv. Private identity/user/log/memory data stays under `~/.pi/agent/mindstone` and is never overwritten.
+
+Install locally while developing:
 
 ```bash
 pi install /Users/clint/Pi/mindstone-for-pi
@@ -68,6 +84,8 @@ The package contains reusable framework files and onboarding templates. The data
 
 Planned and/or implemented commands:
 
+- `/ms4pi-install` — run the package bootstrapper from inside Pi
+- `/ms4pi-update` — git pull the package checkout and rerun bootstrap
 - `/ms-init` — create data directories and copy onboarding templates, without inventing an identity
 - `/ms-onboard` — show the first-run identity invitation
 - `/ms-status` — show whether identity/user/log/memory are present

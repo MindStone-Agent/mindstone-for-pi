@@ -4,6 +4,8 @@
 
 - Pi package manifest
 - global extension
+- public install script
+- `/ms4pi-install` and `/ms4pi-update`
 - MS4CC-style data root
 - onboarding templates
 - `/ms-init`

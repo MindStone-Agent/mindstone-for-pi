@@ -257,6 +257,68 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify("MindStone for Pi: consider /ms-checkpoint before compaction.", "warning");
   });
 
+  pi.registerCommand("ms4pi-install", {
+    description: "Install/wire up MindStone for Pi by running the package bootstrapper",
+    handler: async (_args, ctx) => {
+      const bootstrap = join(PACKAGE_ROOT, "orchestrator", "bootstrap.sh");
+      if (!existsSync(bootstrap)) {
+        ctx.ui.notify(`Bootstrap script not found: ${bootstrap}`, "error");
+        return;
+      }
+      const ok = await ctx.ui.confirm("Install MS4PI", `Run ${bootstrap}? This installs the Pi package and prepares the recall venv.`);
+      if (!ok) return;
+      const result = await pi.exec("bash", [bootstrap], { timeout: 180_000 });
+      const message = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
+      ctx.ui.notify(result.code === 0 ? "MS4PI install finished" : "MS4PI install failed", result.code === 0 ? "info" : "error");
+      pi.sendMessage({ customType: "mindstone-install", content: message || "No installer output.", display: true, details: { code: result.code } });
+    },
+  });
+
+  pi.registerCommand("ms4pi-update", {
+    description: "Update MindStone for Pi, then rerun bootstrap",
+    handler: async (_args, ctx) => {
+      const gitDirCheck = await pi.exec("git", ["-C", PACKAGE_ROOT, "rev-parse", "--is-inside-work-tree"], { timeout: 10_000 });
+      if (gitDirCheck.code !== 0) {
+        ctx.ui.notify(`MS4PI package root is not a git checkout: ${PACKAGE_ROOT}`, "error");
+        return;
+      }
+
+      const dirty = await pi.exec("git", ["-C", PACKAGE_ROOT, "status", "--porcelain"], { timeout: 10_000 });
+      if (dirty.stdout.trim()) {
+        pi.sendMessage({
+          customType: "mindstone-install",
+          content: `MS4PI update blocked: package checkout has uncommitted changes.\n\n${dirty.stdout.trim()}\n\nCommit/stash intentionally, then rerun /ms4pi-update.`,
+          display: true,
+        });
+        ctx.ui.notify("MS4PI update blocked by dirty checkout", "warning");
+        return;
+      }
+
+      const before = await pi.exec("git", ["-C", PACKAGE_ROOT, "rev-parse", "--short", "HEAD"], { timeout: 10_000 });
+      const ok = await ctx.ui.confirm("Update MS4PI", `Run git pull --ff-only in ${PACKAGE_ROOT}, then rerun bootstrap?`);
+      if (!ok) return;
+
+      const pull = await pi.exec("git", ["-C", PACKAGE_ROOT, "pull", "--ff-only"], { timeout: 60_000 });
+      const bootstrap = await pi.exec("bash", [join(PACKAGE_ROOT, "orchestrator", "bootstrap.sh")], { timeout: 180_000 });
+      const after = await pi.exec("git", ["-C", PACKAGE_ROOT, "rev-parse", "--short", "HEAD"], { timeout: 10_000 });
+      const message = [
+        `Before: ${before.stdout.trim()}`,
+        `After: ${after.stdout.trim()}`,
+        "",
+        "## git pull",
+        pull.stdout?.trim(),
+        pull.stderr?.trim(),
+        "",
+        "## bootstrap",
+        bootstrap.stdout?.trim(),
+        bootstrap.stderr?.trim(),
+      ].filter(Boolean).join("\n");
+      const success = pull.code === 0 && bootstrap.code === 0;
+      ctx.ui.notify(success ? "MS4PI update finished" : "MS4PI update failed/degraded", success ? "info" : "error");
+      pi.sendMessage({ customType: "mindstone-install", content: message, display: true, details: { pullCode: pull.code, bootstrapCode: bootstrap.code } });
+    },
+  });
+
   pi.registerCommand("ms-init", {
     description: "Initialize MindStone for Pi directories and onboarding templates",
     handler: async (_args, ctx) => {
