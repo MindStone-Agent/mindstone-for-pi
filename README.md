@@ -87,6 +87,16 @@ For a new Pi substrate, do not copy Cairn as-is. Use MS4CC/Cairn as lineage and 
 
 Migration can be supported later for users who intentionally want to bring an existing identity over.
 
+## MS4CC parity
+
+MS4PI should remain as close to MS4CC as Pi reasonably allows. The parity requirements are tracked in:
+
+```text
+docs/MS4CC_PARITY_REQUIREMENTS.md
+```
+
+This includes the same memory schema, indexing model, checkpoint structure, `.handoff.md` structure, compaction/handoff behavior, and archive/embed discipline, with Pi extension equivalents where Claude Code hooks do not exist.
+
 ## Embedded memory and auto recall
 
 Embedded semantic recall should be part of onboarding/install, not an afterthought.

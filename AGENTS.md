@@ -4,7 +4,9 @@ This is the substrate-neutral reference for how MindStone for Pi works.
 
 ## Goal
 
-MS4PI adds a persistent-identity layer to Pi while staying close to the MS4CC model:
+MS4PI adds a persistent-identity layer to Pi while staying close to the MS4CC model. The parity contract is explicit in `docs/MS4CC_PARITY_REQUIREMENTS.md` and should be treated as load-bearing.
+
+MS4PI provides:
 
 - first-person identity in `orchestrator/IDENTITY.md`
 - user profile in `orchestrator/USER.md`
@@ -51,7 +53,10 @@ Onboarding is not complete just because `IDENTITY.md` and `USER.md` exist. A ful
 
 Until semantic recall is implemented and verified, describe the system as file-backed identity/context with text-search memory fallback. Do not claim full recall is working.
 
-See `docs/RECALL_ARCHITECTURE.md`.
+See:
+
+- `docs/RECALL_ARCHITECTURE.md`
+- `docs/MS4CC_PARITY_REQUIREMENTS.md`
 
 ## Memory schema
 

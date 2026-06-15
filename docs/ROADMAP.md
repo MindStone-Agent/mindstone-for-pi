@@ -15,7 +15,14 @@
 - `/end-role`
 - simple memory read/search tools
 
-## v0.2 — recall-aware onboarding and install
+## v0.2 — MS4CC parity foundation
+
+- keep MS4PI as close to MS4CC as Pi allows
+- maintain `docs/MS4CC_PARITY_REQUIREMENTS.md`
+- preserve memory schema, indexing structure, checkpoint structure, handoff structure, compaction/handoff semantics, and archive/embed discipline
+- use Pi equivalents only where Claude Code hook surfaces do not exist
+
+## v0.3 — recall-aware onboarding and install
 
 Embedded memory and auto recall must be part of onboarding/install.
 
@@ -26,8 +33,7 @@ Embedded memory and auto recall must be part of onboarding/install.
 - show recall state in `/ms-status`
 - document text-search fallback vs semantic recall
 
-## v0.3 — checkpoint discipline
-
+## v0.4 — checkpoint discipline
 - approved LOG append flow
 - memory proposal flow
 - role-span append flow
@@ -35,15 +41,13 @@ Embedded memory and auto recall must be part of onboarding/install.
 - session summary archive
 - prevented counter flow during checkpoint
 
-## v0.4 — semantic recall
-
+## v0.5 — semantic recall
 - vector store decision: reuse MS4CC Python stack first or implement TypeScript stack
 - per-prompt memory recall in `before_agent_start`
 - transcript chunking/indexing
 - hit counter updates
 
-## v0.5 — repeatable onboarding
-- polished first-run wizard
+## v0.6 — repeatable onboarding- polished first-run wizard
 - install verification
 - migration/import from MS4CC
 - project-local vs global setup options

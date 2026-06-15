@@ -21,6 +21,8 @@ const MEMORY_INDEX_FILE = join(MEMORY_DIR, "MEMORY.md");
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACKAGE_ONBOARDING_DIR = join(PACKAGE_ROOT, "onboarding");
+const PACKAGE_HOOKS_DIR = join(PACKAGE_ROOT, "orchestrator", "hooks");
+const PACKAGE_VENV_PYTHON = join(PACKAGE_ROOT, "orchestrator", ".venv", "bin", "python");
 
 const CONTEXT_BUDGET_CHARS = 50_000;
 const LOG_TAIL_LINES = 60;
@@ -228,8 +230,27 @@ export default function (pi: ExtensionAPI) {
     else ctx.ui.notify("MindStone for Pi identity loaded.", "info");
   });
 
+  async function runRecallScript(scriptName: string, args: string[] = [], timeout = 30_000) {
+    const python = existsSync(PACKAGE_VENV_PYTHON) ? PACKAGE_VENV_PYTHON : "python3";
+    return pi.exec("env", [`MS4PI_ORCHESTRATOR_DIR=${ORCHESTRATOR_DIR}`, python, join(PACKAGE_HOOKS_DIR, scriptName), ...args], { timeout });
+  }
+
+  async function semanticRecallBlock(prompt: string): Promise<string> {
+    if (!prompt || prompt.trim().length < 8) return "";
+    if (!existsSync(join(ORCHESTRATOR_DIR, "vectors.db"))) return "";
+    try {
+      const result = await runRecallScript("recall.py", [prompt, "--k", "6"], 20_000);
+      if (result.code !== 0 || !result.stdout || result.stdout.includes("(no matches)")) return "";
+      return `<semantic-recall>\n# Semantic recall for this prompt\n\nUse if relevant; ignore if not. Recall is probabilistic, not authoritative.\n\n${result.stdout.trim()}\n</semantic-recall>`;
+    } catch {
+      return "";
+    }
+  }
+
   pi.on("before_agent_start", async (event, ctx) => {
-    return { systemPrompt: `${event.systemPrompt}\n\n${await buildMindStoneContext(ctx.cwd)}` };
+    const mindstone = await buildMindStoneContext(ctx.cwd);
+    const recall = await semanticRecallBlock(event.prompt ?? "");
+    return { systemPrompt: `${event.systemPrompt}\n\n${mindstone}${recall ? `\n\n${recall}` : ""}` };
   });
 
   pi.on("session_before_compact", async (_event, ctx) => {
@@ -309,8 +330,54 @@ export default function (pi: ExtensionAPI) {
     description: "Draft a MindStone checkpoint entry for approval",
     handler: async () => {
       pi.sendUserMessage(
-        `Run a MindStone for Pi checkpoint. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories/rules that mattered, new memories proposed, and drift flagged. Do not write files yet. Ask for approval before appending to ${LOG_FILE}.`
+        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint. Do not write files yet. Ask for approval before appending to ${LOG_FILE}. After approval, run /ms-recall-backfill so memory/transcript embeddings are refreshed. A checkpoint without archive/embed verification is not complete.`
       );
+    },
+  });
+
+  pi.registerCommand("ms-recall-status", {
+    description: "Show MindStone semantic recall/vector status",
+    handler: async (_args, ctx) => {
+      try {
+        const result = await runRecallScript("recall_status.py", [], 20_000);
+        const message = result.stdout?.trim() || result.stderr?.trim() || "No recall status output.";
+        ctx.ui.notify(result.code === 0 ? "Recall status checked" : "Recall status degraded", result.code === 0 ? "info" : "warning");
+        pi.sendMessage({ customType: "mindstone-recall", content: message, display: true, details: { code: result.code } });
+      } catch (error: any) {
+        ctx.ui.notify(`Recall status failed: ${error?.message ?? error}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("ms-recall-backfill", {
+    description: "Backfill MindStone memory/transcript embeddings into vectors.db",
+    handler: async (_args, ctx) => {
+      try {
+        const result = await runRecallScript("indexer.py", ["backfill"], 120_000);
+        const message = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
+        ctx.ui.notify(result.code === 0 ? "Recall backfill finished" : "Recall backfill failed/degraded", result.code === 0 ? "info" : "warning");
+        pi.sendMessage({ customType: "mindstone-recall", content: message || "No backfill output.", display: true, details: { code: result.code } });
+      } catch (error: any) {
+        ctx.ui.notify(`Recall backfill failed: ${error?.message ?? error}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("ms-recall-search", {
+    description: "Search MindStone semantic recall: /ms-recall-search <query>",
+    handler: async (args, ctx) => {
+      const query = args.trim();
+      if (!query) {
+        ctx.ui.notify("Usage: /ms-recall-search <query>", "warning");
+        return;
+      }
+      try {
+        const result = await runRecallScript("recall.py", [query, "--k", "8"], 30_000);
+        const message = result.stdout?.trim() || result.stderr?.trim() || "No recall output.";
+        pi.sendMessage({ customType: "mindstone-recall", content: message, display: true, details: { code: result.code } });
+      } catch (error: any) {
+        ctx.ui.notify(`Recall search failed: ${error?.message ?? error}`, "error");
+      }
     },
   });
 

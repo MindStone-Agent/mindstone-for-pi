@@ -1,0 +1,35 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.Python
+.venv/
+*.egg-info/
+
+# MS4PI machine-local package state
+orchestrator/.venv/
+orchestrator/vectors.db
+orchestrator/vectors.db-journal
+orchestrator/transcripts/
+orchestrator/.memory-index-state.json
+
+# User-private orchestrator content should live under ~/.pi/agent/mindstone,
+# not in the public package repo. If used locally in the repo, keep private.
+orchestrator/IDENTITY.md
+orchestrator/USER.md
+orchestrator/LOG.md
+orchestrator/memory/feedback_*.md
+orchestrator/memory/project_*.md
+orchestrator/memory/reference_*.md
+orchestrator/memory/lineage_*.md
