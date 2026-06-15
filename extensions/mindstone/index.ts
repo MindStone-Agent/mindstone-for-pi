@@ -135,6 +135,16 @@ async function initializeScaffold(): Promise<string[]> {
     }
   }
 
+  const packageRolesDir = join(PACKAGE_ROOT, "orchestrator", "roles");
+  if (existsSync(packageRolesDir)) {
+    for (const name of await readdir(packageRolesDir)) {
+      if (!name.endsWith(".md")) continue;
+      if (await copyIfMissing(join(packageRolesDir, name), join(ROLES_DIR, name))) {
+        created.push(join(ROLES_DIR, name));
+      }
+    }
+  }
+
   if (await writeIfMissing(LOG_FILE, "# MindStone for Pi Log\n\n")) created.push(LOG_FILE);
   if (
     await writeIfMissing(
