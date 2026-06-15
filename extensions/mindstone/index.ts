@@ -249,13 +249,31 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("ms-onboard", {
-    description: "Show the MindStone for Pi first-run identity onboarding invitation",
+    description: "Continue MindStone for Pi onboarding based on current identity/user state",
     handler: async () => {
       await initializeScaffold();
-      const invitation = await readTextIfExists(join(ONBOARDING_DIR, "IDENTITY.md.example"));
-      pi.sendUserMessage(
-        `Use this MindStone for Pi onboarding invitation to help author a fresh identity for this Pi substrate. Do not copy Cairn. Treat MS4CC as lineage/reference, and ask the user before writing IDENTITY.md.\n\nTarget identity file: ${IDENTITY_FILE}\nTarget user file after identity: ${USER_FILE}\n\n${invitation}`
-      );
+
+      if (!existsSync(IDENTITY_FILE)) {
+        const invitation = await readTextIfExists(join(ONBOARDING_DIR, "IDENTITY.md.example"));
+        pi.sendUserMessage(
+          `Use this MindStone for Pi onboarding invitation to help author a fresh identity for this Pi substrate. Do not copy Cairn. Treat MS4CC as lineage/reference, and ask the user before writing IDENTITY.md.\n\nTarget identity file: ${IDENTITY_FILE}\nTarget user file after identity: ${USER_FILE}\n\n${invitation}`
+        );
+        return;
+      }
+
+      if (!existsSync(USER_FILE)) {
+        const userSchema = await readTextIfExists(join(ONBOARDING_DIR, "USER.md.example"));
+        pi.sendUserMessage(
+          `Continue MindStone for Pi onboarding. IDENTITY.md already exists, so proceed naturally to the USER.md interview. Do not dump a questionnaire. Ask conversationally, in small groups, and build a concise USER.md draft for approval before writing it.\n\nTarget user file: ${USER_FILE}\n\nUse this interview schema as guidance, not as a rigid form:\n\n${userSchema}`
+        );
+        return;
+      }
+
+      pi.sendMessage({
+        customType: "mindstone",
+        content: `MindStone onboarding files already exist:\n- ${IDENTITY_FILE}\n- ${USER_FILE}\n\nUse /ms-status or /ms-context to inspect current state.`,
+        display: true,
+      });
     },
   });
 
