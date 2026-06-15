@@ -1,0 +1,18 @@
+{
+  "name": "mindstone-for-pi",
+  "version": "0.1.0",
+  "description": "Persistent identity and memory layer for the Pi coding agent, inspired by MindStone for Claude Code.",
+  "type": "module",
+  "keywords": ["pi-package", "mindstone", "persistent-identity", "agent-memory", "pi"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extensions"],
+    "prompts": ["./prompts"],
+    "skills": ["./skills"],
+    "themes": ["./themes"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

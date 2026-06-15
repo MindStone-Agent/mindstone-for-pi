@@ -1,0 +1,84 @@
+---
+name: AGENTS.md template for Pi-managed projects
+description: Substrate-neutral orchestration guide template. Copy into a managed project's root as AGENTS.md.
+type: template
+tags: [onboarding, agents-md, managed-project]
+projects: []
+created: 2026-06-14
+---
+
+# AGENTS.md template
+
+Copy this into a project root as `AGENTS.md` and replace bracketed placeholders.
+
+---
+
+# [Project Name] — Agent Orchestration Guide
+
+## What this project is
+
+[1-3 sentence description.]
+
+## Who's working on this
+
+- **Human lead:** [name + role]
+- **Persistent orchestrator:** [name, if present]
+- **Pi/MindStone status:** [stateless / persistent identity active]
+
+## Project structure
+
+```text
+[project-root]/
+├── [subdir]/  # purpose
+└── ...
+```
+
+## Tech stack
+
+- **Frontend:** [stack]
+- **Backend:** [stack]
+- **Database:** [stack]
+- **Infrastructure:** [stack]
+
+## Orchestration principles
+
+### Role adoption
+
+This project uses role adoption instead of mandatory subagents:
+
+```text
+/act-as <role>
+```
+
+Use role adoption before doing role-shaped work such as implementation, planning, writing, testing, security review, or debugging.
+
+### Canonicals are load-bearing
+
+List project canonicals here. Non-trivial decisions should cite them.
+
+## SDLC
+
+1. Review requirements and current status.
+2. Implement.
+3. Test.
+4. Fix and retest.
+5. Document completion.
+6. Commit only when appropriate.
+
+## Debugging and testing rules
+
+- Do not ask the user to inspect browser devtools unless they explicitly prefer that.
+- Use available tools: shell, logs, curl, tests, Playwright/CLI wrappers, etc.
+- Run local build/test checks before claiming completion.
+
+## Destructive actions
+
+Always confirm before destructive git, file, or database operations.
+
+## Project-specific conventions
+
+[Add branch, commit, deploy, issue tracker, documentation, and test conventions.]
+
+---
+
+Adapted from MindStone for Claude Code's project AGENTS.md template.

@@ -1,0 +1,85 @@
+---
+name: USER (example / interview schema)
+description: Template for the Pi orchestrator to author USER.md after a user interview.
+type: template
+tags: [onboarding, user]
+projects: []
+created: 2026-06-14
+---
+
+# USER.md — interview schema
+
+After the orchestrator has authored `IDENTITY.md`, walk through this with the user to produce:
+
+```text
+~/.pi/agent/mindstone/orchestrator/USER.md
+```
+
+This is conversational, not a form. Ask, listen, then write the file in your own voice.
+
+## Things to ask
+
+### About them
+
+- What should I call you?
+- What do you do?
+- Are you a developer in the debugging sense, or should I avoid asking you to inspect console/network/devtools output?
+
+### What they're building
+
+- What projects will I help with?
+- Which project is most active right now?
+- Which projects are background or on hold?
+
+### How they want to work
+
+- Concise or detailed responses?
+- Direct recommendations, options, or analysis first?
+- How should I handle destructive actions?
+- Any GitHub/project-board conventions?
+- Branch, commit, deploy, or release preferences?
+
+### Collaboration preferences
+
+- What has worked well with persistent AI identities before?
+- What frustrates you when working with AI assistants?
+- What should I never do?
+- What should I always do?
+
+### Current context
+
+- What is happening right now?
+- What should I remember as immediate context for this Pi instance?
+
+## Output structure
+
+```markdown
+---
+name: USER
+description: Who [name] is, from my understanding. Always loaded at session start.
+type: user
+critical: true
+evergreen: true
+created: YYYY-MM-DD
+---
+
+# My user: [name]
+
+## Who they are
+
+## What they're building
+
+## How they want to work with me
+
+## What shapes our collaboration
+
+## What they're sensitive to
+
+## What's happening right now
+```
+
+Keep it concise. This file can evolve.
+
+---
+
+Adapted from MindStone for Claude Code's USER onboarding schema.
