@@ -13,6 +13,8 @@
 - `/ms-status`
 - `/ms-context`
 - `/ms-checkpoint`
+- `/ms-handoff`
+- `/ms-end-session`
 - `/act-as`
 - `/end-role`
 - simple memory read/search tools
@@ -35,21 +37,28 @@ Embedded memory and auto recall must be part of onboarding/install.
 - show recall state in `/ms-status`
 - document text-search fallback vs semantic recall
 
-## v0.4 — checkpoint discipline
+## v0.4 — checkpoint and handoff discipline
+
 - approved LOG append flow
 - memory proposal flow
 - role-span append flow
 - protected-file confirmation for identity/memory edits
 - session summary archive
 - prevented counter flow during checkpoint
+- `.handoff.md` rich handoff command
+- mechanical recent-tail capture from Pi JSONL
+- compaction replay/deferred embed wiring
 
 ## v0.5 — semantic recall
+
 - vector store decision: reuse MS4CC Python stack first or implement TypeScript stack
 - per-prompt memory recall in `before_agent_start`
 - transcript chunking/indexing
 - hit counter updates
 
-## v0.6 — repeatable onboarding- polished first-run wizard
+## v0.6 — repeatable onboarding
+
+- polished first-run wizard
 - install verification
 - migration/import from MS4CC
 - project-local vs global setup options

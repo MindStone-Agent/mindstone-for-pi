@@ -240,13 +240,17 @@ Implemented/scaffolded:
 - `/ms-recall-backfill`
 - `/ms-recall-search`
 - prompt-time semantic recall attempt in `before_agent_start` when `vectors.db` exists
+- Pi session archive helper using `ctx.sessionManager.getSessionFile()` where available
+- `.handoff.md` rich handoff command (`/ms-handoff`) plus approved write tool
+- mechanical recent-tail capture from Pi JSONL
+- Pi `session_before_compact` archive + recent-tail refresh
+- Pi `session_compact` handoff replay flag + deferred recall backfill
+- `/ms-end-session` archive + tail + backfill/status command
+- approved LOG append tool for checkpoint/role-span entries
 
 Still to complete:
 
-- robust Pi session archive resolution
-- `.handoff.md` rich handoff command
-- mechanical recent-tail capture from Pi JSONL
-- post-compaction handoff replay/deferred embed
-- fully verified `/ms-checkpoint` append + archive/embed flow
-- `/ms-end-session`
-- safety guards for identity/memory/destructive actions
+- fully verified `/ms-checkpoint` end-to-end flow in a live Pi session
+- robust validation across Pi session replacement/resume/fork edge cases
+- context-capacity danger-zone trigger equivalent, if Pi exposes enough usage data
+- broader safety guard testing across built-in and custom mutating tools

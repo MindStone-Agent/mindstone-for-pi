@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,8 @@ const IDENTITY_FILE = join(ORCHESTRATOR_DIR, "IDENTITY.md");
 const USER_FILE = join(ORCHESTRATOR_DIR, "USER.md");
 const LOG_FILE = join(ORCHESTRATOR_DIR, "LOG.md");
 const MEMORY_INDEX_FILE = join(MEMORY_DIR, "MEMORY.md");
+const HANDOFF_FILE = join(TRANSCRIPTS_DIR, ".handoff.md");
+const RECENT_TAIL_MARKER = "## RECENT TAIL (since rich handoff)";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACKAGE_ONBOARDING_DIR = join(PACKAGE_ROOT, "onboarding");
@@ -33,6 +35,7 @@ type MemoryFile = { path: string; name: string; frontmatter: Frontmatter; body: 
 let activeRoleName: string | undefined;
 let activeRoleContext = "";
 let activeRoleStartedAt: string | undefined;
+let replayHandoffOnNextTurn = false;
 
 async function readTextIfExists(path: string): Promise<string> {
   try {
@@ -221,6 +224,105 @@ function searchScore(queryTerms: string[], memory: MemoryFile): number {
   return queryTerms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
 }
 
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const block = item as Record<string, unknown>;
+    if (block.type === "text" && typeof block.text === "string") parts.push(block.text.trim());
+    else if (block.type === "toolCall") parts.push(`[tool-call: ${String(block.name ?? "?")}]`);
+    else if (block.type === "toolResult") parts.push(`[tool-result: ${String(block.toolName ?? "?")}]`);
+  }
+  return parts.filter(Boolean).join("\n").trim();
+}
+
+const NOISE_PREFIXES = [
+  "<semantic-recall",
+  "<mindstone-context",
+  "<post-compaction-handoff",
+  "<context-capacity-handoff",
+  "<precompact",
+];
+
+async function archiveSessionFile(sessionFile: string | undefined): Promise<{ archivedPath?: string; message: string }> {
+  if (!sessionFile) return { message: "No Pi session file resolved; archive skipped." };
+  if (!existsSync(sessionFile)) return { message: `Pi session file not found: ${sessionFile}` };
+
+  await mkdir(TRANSCRIPTS_DIR, { recursive: true });
+  const archivedPath = join(TRANSCRIPTS_DIR, basename(sessionFile));
+  if (existsSync(archivedPath)) {
+    const sourceStat = await stat(sessionFile);
+    const archiveStat = await stat(archivedPath);
+    if (archiveStat.mtimeMs >= sourceStat.mtimeMs) {
+      return { archivedPath, message: `Transcript archive already current: ${archivedPath}` };
+    }
+  }
+
+  await copyFile(sessionFile, archivedPath);
+  return { archivedPath, message: `Transcript archived: ${archivedPath}` };
+}
+
+async function refreshHandoffTail(sessionFile: string | undefined): Promise<string> {
+  if (!sessionFile || !existsSync(sessionFile)) return "No session file resolved; .handoff.md recent tail not refreshed.";
+  const text = await readTextIfExists(sessionFile);
+  if (!text) return "Session file empty; .handoff.md recent tail not refreshed.";
+
+  const messages: Array<{ role: string; text: string }> = [];
+  for (const raw of text.split("\n")) {
+    if (!raw.trim()) continue;
+    try {
+      const entry = JSON.parse(raw) as Record<string, any>;
+      if (entry.type !== "message" || !entry.message) continue;
+      const role = entry.message.role;
+      if (role !== "user" && role !== "assistant") continue;
+      const body = extractMessageText(entry.message.content);
+      if (!body || NOISE_PREFIXES.some((prefix) => body.startsWith(prefix))) continue;
+      messages.push({ role, text: body });
+    } catch {
+      // Ignore malformed JSONL lines.
+    }
+  }
+
+  const tail = messages.slice(-16);
+  if (!tail.length) return "No user/assistant text found for .handoff.md recent tail.";
+
+  const stamp = new Date().toISOString();
+  const tailBlock = [
+    RECENT_TAIL_MARKER,
+    `_Mechanical capture by MS4PI at ${stamp} — raw recent exchange after the rich handoff. Authoritative for anything the rich handoff predates._`,
+    "",
+    ...tail.map((message) => {
+      const snippet = message.text.replace(/\s+/g, " ").slice(0, 500);
+      return `- **${message.role}:** ${snippet}${message.text.length > 500 ? "…" : ""}`;
+    }),
+    "",
+  ].join("\n");
+
+  const existing = await readTextIfExists(HANDOFF_FILE);
+  const body = existing.includes(RECENT_TAIL_MARKER)
+    ? existing.split(RECENT_TAIL_MARKER, 1)[0].trimEnd()
+    : existing.trimEnd() || "# HANDOFF\n\nNo rich handoff has been written yet. Mechanical recent tail follows.";
+  await mkdir(TRANSCRIPTS_DIR, { recursive: true });
+  await writeFile(HANDOFF_FILE, `${body}\n\n${tailBlock}`, "utf8");
+  return `.handoff.md recent tail refreshed: ${HANDOFF_FILE}`;
+}
+
+async function readHandoffBlock(): Promise<string> {
+  const handoff = await readTextIfExists(HANDOFF_FILE);
+  if (!handoff.trim()) return "";
+  return `<post-compaction-handoff priority="CRITICAL">\nYou just compacted or requested a handoff replay. Use this handoff before relying on the lossy compaction summary. Full file: ${HANDOFF_FILE}\n\n${handoff.trim()}\n</post-compaction-handoff>`;
+}
+
+function sessionFileFromContext(ctx: any): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionFile?.() ?? ctx?.sessionFile;
+  } catch {
+    return undefined;
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const initialized = existsSync(ORCHESTRATOR_DIR);
@@ -228,6 +330,29 @@ export default function (pi: ExtensionAPI) {
     if (!initialized) ctx.ui.notify("MindStone for Pi: run /ms-init to initialize.", "info");
     else if (!hasIdentity) ctx.ui.notify("MindStone for Pi: initialized but no identity. Run /ms-onboard for fresh onboarding.", "info");
     else ctx.ui.notify("MindStone for Pi identity loaded.", "info");
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    const toolName = event.toolName;
+    const input = (event.input ?? {}) as Record<string, any>;
+
+    if (toolName === "bash") {
+      const command = String(input.command ?? "");
+      const dangerous = /\b(git\s+(reset|rebase)|git\s+checkout\b|git\s+clean\b|git\s+push\s+.*--force|rm\s+-rf|rm\s+-fr|drop\s+database|truncate\s+table)\b/i.test(command);
+      if (dangerous) {
+        const ok = await ctx.ui.confirm("MindStone safety check", `Allow potentially destructive command?\n\n${command}`);
+        if (!ok) return { block: true, reason: "Blocked by MindStone safety check" };
+      }
+    }
+
+    if (toolName === "write" || toolName === "edit") {
+      const target = String(input.path ?? "");
+      const protectedPath = target.includes(ORCHESTRATOR_DIR) && /(IDENTITY\.md|USER\.md|LOG\.md|\/memory\/|\\memory\\)/.test(target);
+      if (protectedPath) {
+        const ok = await ctx.ui.confirm("MindStone protected file", `Allow ${toolName} on protected MindStone file?\n\n${target}`);
+        if (!ok) return { block: true, reason: "Protected MindStone file blocked by user" };
+      }
+    }
   });
 
   async function runRecallScript(scriptName: string, args: string[] = [], timeout = 30_000) {
@@ -250,11 +375,30 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const mindstone = await buildMindStoneContext(ctx.cwd);
     const recall = await semanticRecallBlock(event.prompt ?? "");
-    return { systemPrompt: `${event.systemPrompt}\n\n${mindstone}${recall ? `\n\n${recall}` : ""}` };
+    const handoff = replayHandoffOnNextTurn ? await readHandoffBlock() : "";
+    replayHandoffOnNextTurn = false;
+    return { systemPrompt: `${event.systemPrompt}\n\n${handoff ? `${handoff}\n\n` : ""}${mindstone}${recall ? `\n\n${recall}` : ""}` };
   });
 
   pi.on("session_before_compact", async (_event, ctx) => {
-    ctx.ui.notify("MindStone for Pi: consider /ms-checkpoint before compaction.", "warning");
+    const sessionFile = sessionFileFromContext(ctx);
+    const archive = await archiveSessionFile(sessionFile);
+    const tail = await refreshHandoffTail(sessionFile);
+    ctx.ui.notify(`MindStone PreCompact: ${archive.message}; ${tail}`, "warning");
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    replayHandoffOnNextTurn = true;
+    ctx.ui.notify("MindStone: compaction finished; .handoff.md will replay on the next model turn. Running deferred recall backfill.", "info");
+    try {
+      await runRecallScript("indexer.py", ["backfill"], 120_000);
+    } catch {
+      ctx.ui.notify("MindStone: deferred recall backfill failed/degraded; run /ms-recall-status.", "warning");
+    }
+  });
+
+  pi.on("session_shutdown", async (_event, _ctx) => {
+    // Best-effort only. /ms-end-session remains the explicit, verified path.
   });
 
   pi.registerCommand("ms4pi-install", {
@@ -352,9 +496,10 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      const result = await runRecallScript("recall_status.py", [], 20_000);
       pi.sendMessage({
         customType: "mindstone",
-        content: `MindStone onboarding files already exist:\n- ${IDENTITY_FILE}\n- ${USER_FILE}\n\nUse /ms-status or /ms-context to inspect current state.`,
+        content: `MindStone identity/user onboarding files already exist:\n- ${IDENTITY_FILE}\n- ${USER_FILE}\n\nRecall setup is the next onboarding check. Current recall status:\n\n${result.stdout?.trim() || result.stderr?.trim() || "No recall status output."}\n\nIf chunks are empty or stale, run /ms-recall-backfill. Use /ms-status or /ms-context to inspect current state.`,
         display: true,
       });
     },
@@ -365,6 +510,16 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const memories = await loadMemories();
       const roles = await listRoleNames();
+      let recallSummary = "Recall: not checked";
+      try {
+        const result = await runRecallScript("recall_status.py", [], 20_000);
+        if (result.stdout?.trim()) {
+          const status = JSON.parse(result.stdout);
+          recallSummary = `Recall: ${status.mode}; chunks total=${status.chunks_total}, memory=${status.chunks_memory}, transcript=${status.chunks_transcript}; model=${status.embedding_model}`;
+        }
+      } catch {
+        recallSummary = "Recall: status check failed/degraded";
+      }
       const lines = [
         `Data root: ${DATA_ROOT}`,
         `Orchestrator dir: ${ORCHESTRATOR_DIR}`,
@@ -374,6 +529,8 @@ export default function (pi: ExtensionAPI) {
         `Memory files: ${memories.length}`,
         `Roles: ${roles.length}${roles.length ? ` (${roles.join(", ")})` : ""}`,
         `Active role: ${activeRoleName ?? "none"}`,
+        `Handoff: ${existsSync(HANDOFF_FILE) ? "present" : "missing"}`,
+        recallSummary,
       ];
       const message = lines.join("\n");
       ctx.ui.notify(message, "info");
@@ -392,8 +549,44 @@ export default function (pi: ExtensionAPI) {
     description: "Draft a MindStone checkpoint entry for approval",
     handler: async () => {
       pi.sendUserMessage(
-        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint. Do not write files yet. Ask for approval before appending to ${LOG_FILE}. After approval, run /ms-recall-backfill so memory/transcript embeddings are refreshed. A checkpoint without archive/embed verification is not complete.`
+        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint. Do not write files yet. Ask for approval before appending to ${LOG_FILE}. After approval, use mindstone_log_append to append the approved entry, then run /ms-end-session or /ms-recall-backfill so archive/embed is verified. A checkpoint without archive/embed verification is not complete.`
       );
+    },
+  });
+
+  pi.registerCommand("ms-handoff", {
+    description: "Draft a rich compaction handoff for .handoff.md",
+    handler: async () => {
+      pi.sendUserMessage(
+        `Create a rich MindStone handoff for possible compaction. Capture current objective, open threads, files/projects touched, decisions made, active role state, immediate next actions, and anything post-compaction Slate would regret losing. Do not write files until approved. After approval, use mindstone_handoff_write to write ${HANDOFF_FILE}. Preserve the MS4CC .handoff.md structure; PreCompact will manage the ${RECENT_TAIL_MARKER} section.`
+      );
+    },
+  });
+
+  pi.registerCommand("ms-end-session", {
+    description: "Archive the current Pi session and refresh recall before exit",
+    handler: async (_args, ctx) => {
+      const sessionFile = sessionFileFromContext(ctx);
+      const archive = await archiveSessionFile(sessionFile);
+      const tail = await refreshHandoffTail(sessionFile);
+      const backfill = await runRecallScript("indexer.py", ["backfill"], 120_000);
+      const status = await runRecallScript("recall_status.py", [], 20_000);
+      const message = [
+        "# MindStone end-session",
+        archive.message,
+        tail,
+        "",
+        "## Backfill",
+        backfill.stdout?.trim(),
+        backfill.stderr?.trim(),
+        "",
+        "## Recall status",
+        status.stdout?.trim(),
+        status.stderr?.trim(),
+      ].filter(Boolean).join("\n");
+      const success = backfill.code === 0 && status.code === 0;
+      ctx.ui.notify(success ? "MindStone end-session archive/backfill finished" : "MindStone end-session degraded", success ? "info" : "warning");
+      pi.sendMessage({ customType: "mindstone", content: message, display: true, details: { sessionFile, archive, backfillCode: backfill.code, statusCode: status.code } });
     },
   });
 
@@ -505,6 +698,44 @@ export default function (pi: ExtensionAPI) {
       const text = await readTextIfExists(target);
       if (!text) throw new Error(`MindStone file not found or empty: ${requested}`);
       return { content: [{ type: "text", text: `# ${requested}\n\n${text}` }], details: { path: target } };
+    },
+  });
+
+  pi.registerTool({
+    name: "mindstone_log_append",
+    label: "MindStone Log Append",
+    description: "Append an approved MindStone checkpoint or role-span entry to LOG.md. Use only after explicit user approval.",
+    promptSnippet: "Append approved MindStone checkpoint or role-span entries to LOG.md",
+    promptGuidelines: [
+      "Use mindstone_log_append only after the user explicitly approves the exact LOG.md entry to append.",
+      "Do not use mindstone_log_append for drafts or unapproved memory edits.",
+    ],
+    parameters: Type.Object({ entry: Type.String({ description: "Approved Markdown entry to append to LOG.md" }) }),
+    async execute(_toolCallId, params) {
+      await mkdir(dirname(LOG_FILE), { recursive: true });
+      const entry = String(params.entry).trimEnd();
+      await appendFile(LOG_FILE, `${entry}\n\n`, "utf8");
+      return { content: [{ type: "text", text: `Appended approved entry to ${LOG_FILE}` }], details: { path: LOG_FILE } };
+    },
+  });
+
+  pi.registerTool({
+    name: "mindstone_handoff_write",
+    label: "MindStone Handoff Write",
+    description: "Write an approved rich compaction handoff to transcripts/.handoff.md. Use only after explicit user approval.",
+    promptSnippet: "Write approved MindStone rich handoff to .handoff.md",
+    promptGuidelines: [
+      "Use mindstone_handoff_write only after the user explicitly approves the handoff body.",
+      "Preserve the MS4CC handoff structure. PreCompact manages the RECENT TAIL section.",
+    ],
+    parameters: Type.Object({ body: Type.String({ description: "Approved rich handoff Markdown body" }) }),
+    async execute(_toolCallId, params) {
+      await mkdir(TRANSCRIPTS_DIR, { recursive: true });
+      const existing = await readTextIfExists(HANDOFF_FILE);
+      const recentTail = existing.includes(RECENT_TAIL_MARKER) ? `\n\n${RECENT_TAIL_MARKER}${existing.split(RECENT_TAIL_MARKER, 2)[1]}` : "";
+      const body = String(params.body).trimEnd();
+      await writeFile(HANDOFF_FILE, `${body}${recentTail}\n`, "utf8");
+      return { content: [{ type: "text", text: `Wrote approved handoff to ${HANDOFF_FILE}` }], details: { path: HANDOFF_FILE } };
     },
   });
 

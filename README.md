@@ -23,9 +23,10 @@ Current state:
 - role adoption: scaffolded
 - file-backed memory: scaffolded
 - text memory search: scaffolded
-- embedded semantic recall: designed, not yet implemented
+- embedded semantic recall: scaffolded through the MS4CC Python vector stack and Pi `before_agent_start`; verify with `/ms-recall-status`, `/ms-recall-backfill`, and `/ms-recall-search`
+- compaction handoff: scaffolded with `/ms-handoff`, `.handoff.md`, `session_before_compact`, and `session_compact` handlers
 
-Do not claim semantic recall is active until `/ms-recall-status` and a prompt-time recall test verify it.
+Do not claim semantic recall or compaction handoff parity is fully working until live Pi-session tests verify it.
 
 ## Install
 
@@ -90,12 +91,14 @@ Planned and/or implemented commands:
 - `/ms-onboard` — show the first-run identity invitation
 - `/ms-status` — show whether identity/user/log/memory are present
 - `/ms-context` — show the context that will be injected
-- `/ms-checkpoint` — draft a checkpoint entry for approval
+- `/ms-checkpoint` — draft a checkpoint entry for approval, then append/backfill after approval
+- `/ms-handoff` — draft a rich `.handoff.md` compaction handoff
+- `/ms-end-session` — archive the current Pi session and refresh recall before exit
 - `/act-as <role>` — load a role directive for direct work
 - `/end-role` — close the adopted role and run attribution audit
-- `/ms-recall-status` — planned recall/vector status check
-- `/ms-recall-backfill` — planned memory/transcript embedding backfill
-- `/ms-recall-search <query>` — planned semantic recall query
+- `/ms-recall-status` — recall/vector status check
+- `/ms-recall-backfill` — memory/transcript embedding backfill
+- `/ms-recall-search <query>` — semantic recall query
 
 ## Fresh onboarding vs migration
 
