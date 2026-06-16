@@ -138,15 +138,19 @@ Required LOG entry shape:
 
 Rules:
 
-- Draft first; ask user approval before appending.
+- Draft first; ask user approval before appending or writing memory files.
 - Option D prevented-confirmation remains.
 - Semantic duplicate check before new memories remains.
+- New durable memories must become approved memory docs under `orchestrator/memory/`, not just LOG bullets.
+- `MEMORY.md` must be updated with pointers/index entries for approved new memory docs.
+- If a similar memory already exists, propose an update instead of creating a duplicate.
+- If no memory is warranted, state that explicitly in checkpoint lint.
 - Drift checks remain:
   - role-shaped work without `/act-as`
   - non-trivial decisions without canonical attribution
   - memory contradictions
   - artifact skips
-- Checkpoint is not complete unless archive/embed verification succeeds.
+- Checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds.
 
 ## Handoff structure
 
@@ -204,7 +208,7 @@ MS4CC current rule should carry over:
 
 - cheap transcript archive can happen often
 - expensive embedding should happen at checkpoint and post-compaction, not every turn
-- `/ms-checkpoint` runs archive + embed explicitly
+- `/ms-checkpoint` writes approved memory docs/index entries when warranted, then runs archive + embed explicitly
 - post-compaction runs deferred embed of the archived pre-compaction transcript
 
 MS4PI should not claim a checkpoint is complete unless the embed path prints/verifies success.

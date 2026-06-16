@@ -171,7 +171,7 @@ mindstone-for-pi/
 
 ### Checkpoint and handoff
 
-- **`/ms-checkpoint`** — draft an MS4CC-style checkpoint for approval; after approval append to `LOG.md` and verify archive/embed.
+- **`/ms-checkpoint`** — draft an MS4CC-style checkpoint for approval, including LOG entry, warranted memory docs/updates, and `MEMORY.md` index pointers; after approval write memory/index updates, append `LOG.md`, and verify archive/embed.
 - **`/ms-handoff`** — draft a rich compaction handoff for `.handoff.md`.
 - **`/ms-end-session`** — archive the current Pi session, refresh `.handoff.md` recent tail, backfill vectors, and print recall status.
 
@@ -201,6 +201,7 @@ MS4PI registers Pi tools for the model:
 
 - `mindstone_memory_read` — read `IDENTITY.md`, `USER.md`, `LOG.md`, memory files, or roles.
 - `mindstone_memory_search` — simple text search over memory files.
+- `mindstone_memory_write` — write an approved memory file and optional `MEMORY.md` index pointer.
 - `mindstone_log_append` — append an approved checkpoint/role-span entry to `LOG.md`.
 - `mindstone_handoff_write` — write an approved rich `.handoff.md` body.
 - `synapse_post` — post to a Synapse channel.

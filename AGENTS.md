@@ -58,6 +58,22 @@ See:
 - `docs/RECALL_ARCHITECTURE.md`
 - `docs/MS4CC_PARITY_REQUIREMENTS.md`
 
+## Checkpoint and memory enforcement
+
+`/ms-checkpoint` is not just a LOG summary. It is the dream-cycle point where durable session experience becomes persistent memory.
+
+A checkpoint must follow the MS4CC pattern:
+
+1. Draft the LOG entry.
+2. Identify durable new memories or updates.
+3. Search existing memories first to avoid duplicates.
+4. Draft exact memory files or updates using the schema below.
+5. Draft exact `MEMORY.md` index/pointer updates.
+6. Ask Clint for approval before writing any LOG or memory files.
+7. After approval, write approved memory docs and index entries, append LOG, then run archive/embed verification.
+
+A checkpoint is incomplete if it appends `LOG.md` but skips warranted memory docs or `MEMORY.md` index updates. If no new memory is warranted, say that explicitly in the checkpoint lint.
+
 ## Memory schema
 
 Memory files use the MS4CC schema:
@@ -80,6 +96,8 @@ evergreen: false
 ```
 
 `critical: true` memories are injected in full. `evergreen: true` memories are always listed or considered. Later versions add weighted semantic recall.
+
+Memory files live in private state under `orchestrator/memory/`. `MEMORY.md` is the index and must be updated with a pointer when a new durable memory is approved.
 
 ## Destructive actions
 

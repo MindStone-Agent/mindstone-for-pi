@@ -364,6 +364,29 @@ function describeCompactionPolicy(ctx: any): string[] {
   ];
 }
 
+function validateMemoryMarkdown(filename: string, body: string): void {
+  if (!filename.endsWith(".md")) throw new Error("Memory filename must end with .md");
+  if (basename(filename) !== filename) throw new Error("Memory filename must not include path separators");
+  if (filename === "MEMORY.md") throw new Error("Use indexEntry to update MEMORY.md; memory filename cannot be MEMORY.md");
+  const required = ["name:", "description:", "type:", "tags:", "projects:", "hits:", "prevented:", "last_applied:", "created:", "half_life_days:", "critical:", "evergreen:"];
+  if (!body.startsWith("---\n")) throw new Error("Memory body must start with YAML frontmatter");
+  for (const key of required) {
+    if (!body.includes(`\n${key}`) && !body.startsWith(`${key}`)) throw new Error(`Memory frontmatter missing required key: ${key}`);
+  }
+}
+
+async function appendMemoryIndexEntry(indexEntry: string): Promise<void> {
+  const entry = indexEntry.trim();
+  if (!entry) return;
+  await mkdir(dirname(MEMORY_INDEX_FILE), { recursive: true });
+  const existing = await readTextIfExists(MEMORY_INDEX_FILE);
+  if (existing.includes(entry)) return;
+  const base = existing.trimEnd() || "# Memory Index";
+  const needsSection = !/^## Memory Files/m.test(base);
+  const next = needsSection ? `${base}\n\n## Memory Files\n\n${entry}\n` : `${base}\n${entry}\n`;
+  await writeFile(MEMORY_INDEX_FILE, next, "utf8");
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const initialized = existsSync(ORCHESTRATOR_DIR);
@@ -630,10 +653,10 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("ms-checkpoint", {
-    description: "Draft a MindStone checkpoint entry for approval",
+    description: "Draft a MindStone checkpoint entry, memory docs, and index updates for approval",
     handler: async () => {
       pi.sendUserMessage(
-        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint. Do not write files yet. Ask for approval before appending to ${LOG_FILE}. After approval, use mindstone_log_append to append the approved entry, then run /ms-end-session or /ms-recall-backfill so archive/embed is verified. A checkpoint without archive/embed verification is not complete.`
+        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure.\n\nRequired protocol:\n1. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. For each durable new lesson/fact/design decision, first search existing memory with /ms-recall-search or mindstone_memory_search to avoid duplicates.\n3. If no suitable memory exists, draft a full memory file using the MS4CC frontmatter schema and a proposed MEMORY.md pointer/index entry. If a suitable memory exists, draft an update instead of a duplicate.\n4. Do not write files yet. Show Clint the exact LOG entry, each memory file body/update, and each MEMORY.md index entry. Ask for approval.\n5. After approval, use mindstone_memory_write for every approved new/updated memory and index pointer, then use mindstone_log_append to append the approved LOG entry.\n6. Run /ms-recall-backfill or /ms-end-session so archive/embed reindexes the transcript and changed memory files.\n\nA checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds. Target files: ${LOG_FILE} and ${MEMORY_DIR}.`
       );
     },
   });
@@ -821,6 +844,36 @@ export default function (pi: ExtensionAPI) {
       const body = String(params.body).trimEnd();
       await writeFile(HANDOFF_FILE, `${body}${recentTail}\n`, "utf8");
       return { content: [{ type: "text", text: `Wrote approved handoff to ${HANDOFF_FILE}` }], details: { path: HANDOFF_FILE } };
+    },
+  });
+
+  pi.registerTool({
+    name: "mindstone_memory_write",
+    label: "MindStone Memory Write",
+    description: "Write an approved MindStone memory file and optionally update MEMORY.md. Use only after explicit user approval.",
+    promptSnippet: "Write approved MindStone memory files and MEMORY.md index pointers",
+    promptGuidelines: [
+      "Use mindstone_memory_write only after the user explicitly approves the exact memory body/update and index entry.",
+      "Do not use mindstone_memory_write for drafts or speculative memories.",
+      "Before creating a new memory, search existing memories for duplicates and prefer updates when appropriate.",
+      "Checkpoint is incomplete if warranted memory docs/index updates are skipped.",
+    ],
+    parameters: Type.Object({
+      filename: Type.String({ description: "Memory markdown filename, e.g. project_example.md. Path separators are not allowed." }),
+      body: Type.String({ description: "Approved full Markdown memory body with MS4CC frontmatter." }),
+      indexEntry: Type.Optional(Type.String({ description: "Approved MEMORY.md bullet/pointer for this memory." })),
+      overwrite: Type.Optional(Type.Boolean({ description: "Allow replacing an existing memory file. Default false." })),
+    }),
+    async execute(_toolCallId, params) {
+      const filename = basename(String(params.filename));
+      const body = String(params.body).trimEnd();
+      validateMemoryMarkdown(filename, body);
+      const target = join(MEMORY_DIR, filename);
+      if (existsSync(target) && params.overwrite !== true) throw new Error(`Memory file already exists; set overwrite=true only with explicit approval: ${filename}`);
+      await mkdir(MEMORY_DIR, { recursive: true });
+      await writeFile(target, `${body}\n`, "utf8");
+      if (params.indexEntry) await appendMemoryIndexEntry(String(params.indexEntry));
+      return { content: [{ type: "text", text: `Wrote approved memory to ${target}${params.indexEntry ? ` and updated ${MEMORY_INDEX_FILE}` : ""}` }], details: { path: target, indexPath: params.indexEntry ? MEMORY_INDEX_FILE : undefined } };
     },
   });
 
