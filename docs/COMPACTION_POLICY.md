@@ -2,6 +2,8 @@
 
 MS4PI uses Pi's native compaction hooks plus a MindStone context watchdog.
 
+This is the Pi/Claude-style **auto checkpoint/handoff/compact** path. It is not MindStone proper's sliding-window pruning model. MindStone-Agent owns both selectable modes: `auto_compact` and `sliding_window`.
+
 ## Policy defaults
 
 | Setting | Default | Purpose |
@@ -81,6 +83,12 @@ Do not blindly apply the `21760` value to a different model. For a different con
 7. `session_before_compact` archives the live transcript and refreshes recent tail one more time.
 8. `session_compact` sets the replay flag and runs deferred recall backfill.
 9. The next `before_agent_start` injects `.handoff.md` once as critical post-compaction continuity.
+
+## Sliding-window distinction
+
+MindStone proper can keep a long-running active context in range by pruning older messages out of the prompt window while preserving the transcript. That requires a runtime that owns message selection before model calls.
+
+MS4PI runs inside Pi and therefore uses Pi's compaction lifecycle instead of replacing Pi's prompt-window construction. MS4PI should keep this auto checkpoint/handoff/compact policy; sliding-window pruning belongs in MindStone-Agent's Core/Gateway runtime.
 
 ## Safety stance
 

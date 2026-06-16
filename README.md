@@ -228,6 +228,8 @@ See [`docs/RECALL_ARCHITECTURE.md`](docs/RECALL_ARCHITECTURE.md).
 
 ## Compaction handoff
 
+MS4PI implements the Pi/Claude-style auto checkpoint/handoff/compact path. It does not implement MindStone proper's sliding-window pruning model; that belongs in MindStone-Agent Core/Gateway where the runtime owns prompt-window selection.
+
 MS4PI mirrors the MS4CC handoff structure as closely as Pi exposes the needed events:
 
 1. **Context watchdog** — `turn_end` checks `ctx.getContextUsage()`. At the default 85% threshold it archives the live session if resolvable, refreshes `.handoff.md` recent tail, and asks Slate to draft both an MS4CC-style checkpoint and a rich handoff for approval.
