@@ -29,6 +29,27 @@ const PACKAGE_VENV_PYTHON = join(PACKAGE_ROOT, "orchestrator", ".venv", "bin", "
 const CONTEXT_BUDGET_CHARS = 50_000;
 const LOG_TAIL_LINES = 60;
 
+function envNumber(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function envBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  return /^(1|true|yes|on)$/i.test(raw) ? true : /^(0|false|no|off)$/i.test(raw) ? false : fallback;
+}
+
+const COMPACTION_POLICY = {
+  checkpointWarningPercent: envNumber("MS4PI_CHECKPOINT_WARNING_PERCENT", 85, 1, 99),
+  compactTargetPercent: envNumber("MS4PI_COMPACT_TARGET_PERCENT", 92, 1, 99),
+  keepRecentTokens: envNumber("MS4PI_KEEP_RECENT_TOKENS", 20_000, 1_000, 1_000_000),
+  emergencyAutoHandoff: envBoolean("MS4PI_EMERGENCY_AUTO_HANDOFF", false),
+};
+
 type Frontmatter = Record<string, string | number | boolean | string[] | null | undefined>;
 type MemoryFile = { path: string; name: string; frontmatter: Frontmatter; body: string; text: string };
 
@@ -36,6 +57,7 @@ let activeRoleName: string | undefined;
 let activeRoleContext = "";
 let activeRoleStartedAt: string | undefined;
 let replayHandoffOnNextTurn = false;
+let compactionWatchdogPrompted = false;
 
 async function readTextIfExists(path: string): Promise<string> {
   try {
@@ -323,6 +345,25 @@ function sessionFileFromContext(ctx: any): string | undefined {
   }
 }
 
+function reserveTokensForTarget(contextWindow: number | undefined, targetPercent = COMPACTION_POLICY.compactTargetPercent): number | undefined {
+  if (!contextWindow || contextWindow <= 0) return undefined;
+  return Math.ceil(contextWindow * (1 - targetPercent / 100));
+}
+
+function describeCompactionPolicy(ctx: any): string[] {
+  const usage = ctx?.getContextUsage?.();
+  const contextWindow = usage?.contextWindow ?? ctx?.model?.contextWindow;
+  const reserveTokens = reserveTokensForTarget(contextWindow);
+  return [
+    `Policy: checkpoint/handoff prompt at ${COMPACTION_POLICY.checkpointWarningPercent}%; native Pi auto-compact target ${COMPACTION_POLICY.compactTargetPercent}%.`,
+    `Emergency auto-write: ${COMPACTION_POLICY.emergencyAutoHandoff ? "enabled" : "disabled; approval remains required for LOG.md and .handoff.md writes"}.`,
+    `Current usage: ${usage?.percent === null || usage?.percent === undefined ? "unknown" : `${usage.percent.toFixed(1)}%`} (${usage?.tokens ?? "unknown"}/${contextWindow ?? "unknown"} tokens).`,
+    reserveTokens
+      ? `Suggested Pi settings: compaction.enabled=true, reserveTokens=${reserveTokens}, keepRecentTokens=${COMPACTION_POLICY.keepRecentTokens}.`
+      : `Suggested Pi settings: compaction.enabled=true, reserveTokens=contextWindow*(1-${COMPACTION_POLICY.compactTargetPercent}/100), keepRecentTokens=${COMPACTION_POLICY.keepRecentTokens}.`,
+  ];
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const initialized = existsSync(ORCHESTRATOR_DIR);
@@ -372,12 +413,44 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  async function maybePromptCompactionCheckpoint(ctx: any): Promise<void> {
+    const usage = ctx?.getContextUsage?.();
+    if (!usage || usage.percent === null || usage.percent === undefined) return;
+
+    if (usage.percent < COMPACTION_POLICY.checkpointWarningPercent - 5) {
+      compactionWatchdogPrompted = false;
+      return;
+    }
+
+    if (usage.percent < COMPACTION_POLICY.checkpointWarningPercent || compactionWatchdogPrompted) return;
+    compactionWatchdogPrompted = true;
+
+    const sessionFile = sessionFileFromContext(ctx);
+    const archive = await archiveSessionFile(sessionFile);
+    const tail = await refreshHandoffTail(sessionFile);
+    const policyLines = describeCompactionPolicy(ctx);
+    const nearCompactTarget = usage.percent >= COMPACTION_POLICY.compactTargetPercent;
+
+    ctx.ui.notify(
+      `MindStone context watchdog: ${usage.percent.toFixed(1)}% used; checkpoint/handoff draft needed before compaction danger zone.`,
+      nearCompactTarget ? "error" : "warning"
+    );
+
+    pi.sendUserMessage(
+      `MindStone context watchdog fired.\n\n${policyLines.join("\n")}\n\nMechanical safety work already attempted:\n- ${archive.message}\n- ${tail}\n\nDraft a combined MindStone checkpoint and rich compaction handoff now. Preserve MS4CC structure. Do not write files until Clint approves.\n\nRequired draft outputs:\n1. A LOG.md checkpoint with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. A rich .handoff.md body with current objective, open threads, files/projects touched, decisions made, active role state, immediate next actions, and anything post-compaction Slate would regret losing.\n\nAfter approval, use mindstone_log_append and mindstone_handoff_write, then run /ms-recall-backfill or /ms-end-session so archive/embed is verified. A checkpoint without archive/embed verification is not complete.${nearCompactTarget ? "\n\nContext is already at or past the configured compaction target. After approved writes and archive/embed verification, recommend immediate compaction or allow Pi auto-compaction to proceed." : ""}`
+    );
+  }
+
   pi.on("before_agent_start", async (event, ctx) => {
     const mindstone = await buildMindStoneContext(ctx.cwd);
     const recall = await semanticRecallBlock(event.prompt ?? "");
     const handoff = replayHandoffOnNextTurn ? await readHandoffBlock() : "";
     replayHandoffOnNextTurn = false;
     return { systemPrompt: `${event.systemPrompt}\n\n${handoff ? `${handoff}\n\n` : ""}${mindstone}${recall ? `\n\n${recall}` : ""}` };
+  });
+
+  pi.on("turn_end", async (_event, ctx) => {
+    await maybePromptCompactionCheckpoint(ctx);
   });
 
   pi.on("session_before_compact", async (_event, ctx) => {
@@ -389,6 +462,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_compact", async (_event, ctx) => {
     replayHandoffOnNextTurn = true;
+    compactionWatchdogPrompted = false;
     ctx.ui.notify("MindStone: compaction finished; .handoff.md will replay on the next model turn. Running deferred recall backfill.", "info");
     try {
       await runRecallScript("indexer.py", ["backfill"], 120_000);
@@ -530,6 +604,7 @@ export default function (pi: ExtensionAPI) {
         `Roles: ${roles.length}${roles.length ? ` (${roles.join(", ")})` : ""}`,
         `Active role: ${activeRoleName ?? "none"}`,
         `Handoff: ${existsSync(HANDOFF_FILE) ? "present" : "missing"}`,
+        ...describeCompactionPolicy(ctx),
         recallSummary,
       ];
       const message = lines.join("\n");
@@ -542,6 +617,15 @@ export default function (pi: ExtensionAPI) {
     description: "Display the MindStone context injected into model calls",
     handler: async (_args, ctx) => {
       pi.sendMessage({ customType: "mindstone", content: await buildMindStoneContext(ctx.cwd), display: true });
+    },
+  });
+
+  pi.registerCommand("ms-compaction-status", {
+    description: "Show MindStone compaction/checkpoint policy and suggested Pi settings",
+    handler: async (_args, ctx) => {
+      const message = ["# MindStone compaction policy", "", ...describeCompactionPolicy(ctx)].join("\n");
+      ctx.ui.notify("MindStone compaction policy checked", "info");
+      pi.sendMessage({ customType: "mindstone", content: message, display: true, details: { policy: COMPACTION_POLICY } });
     },
   });
 

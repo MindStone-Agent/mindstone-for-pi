@@ -183,13 +183,15 @@ Pi has compaction and exposes extension events around compaction. MS4PI should m
 
 | MS4CC | MS4PI equivalent |
 |---|---|
-| danger-zone handoff trigger | prompt/tool/turn/context sampling where Pi exposes enough usage info; until then explicit `/ms-handoff` + compaction reminder |
+| danger-zone handoff trigger | Pi `turn_end` watchdog using `ctx.getContextUsage()`; default checkpoint/handoff prompt at 85% |
 | `PreCompact` | Pi `session_before_compact` |
 | `SessionStart(source=compact)` handoff replay | Pi `session_compact`/next `before_agent_start` replay |
-| auto-compact threshold env | Pi settings/compaction options if available; otherwise document no equivalent |
+| auto-compact threshold env | Pi settings `compaction.reserveTokens`; target 92% via `reserveTokens = contextWindow * 0.08` |
 
 Required behavior:
 
+- At the warning threshold, prompt for a model-authored checkpoint and rich handoff before the compaction danger zone.
+- Do not write LOG.md or `.handoff.md` without explicit approval unless a separately approved emergency auto-write policy exists.
 - Before compaction, archive the live Pi session file if resolvable.
 - Refresh `.handoff.md` with recent tail.
 - After compaction, replay `.handoff.md` into context.

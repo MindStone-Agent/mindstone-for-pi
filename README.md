@@ -165,8 +165,9 @@ mindstone-for-pi/
 - **`/ms4pi-update`** — `git pull --ff-only` the package checkout and rerun bootstrap.
 - **`/ms-init`** — create data directories and copy onboarding templates without inventing an identity.
 - **`/ms-onboard`** — show the first-run identity/user onboarding invitation.
-- **`/ms-status`** — show identity/user/log/memory/role/handoff state plus recall summary.
+- **`/ms-status`** — show identity/user/log/memory/role/handoff state plus recall and compaction policy summary.
 - **`/ms-context`** — display the MindStone context that will be injected.
+- **`/ms-compaction-status`** — show checkpoint/compaction watchdog policy and suggested Pi settings.
 
 ### Checkpoint and handoff
 
@@ -229,10 +230,31 @@ See [`docs/RECALL_ARCHITECTURE.md`](docs/RECALL_ARCHITECTURE.md).
 
 MS4PI mirrors the MS4CC handoff structure as closely as Pi exposes the needed events:
 
-1. **Rich handoff** — `/ms-handoff` drafts `.handoff.md` with objective, open threads, files touched, decisions, next actions, and anything post-compaction Slate would regret losing.
-2. **Pre-compact recent tail** — `session_before_compact` archives the live session and refreshes the `## RECENT TAIL (since rich handoff)` section mechanically from the JSONL tail.
-3. **Post-compact replay** — `session_compact` sets a replay flag; the next `before_agent_start` injects `.handoff.md` once as critical continuity context.
-4. **Deferred embed** — compaction and end-session paths run recall backfill after archive.
+1. **Context watchdog** — `turn_end` checks `ctx.getContextUsage()`. At the default 85% threshold it archives the live session if resolvable, refreshes `.handoff.md` recent tail, and asks Slate to draft both an MS4CC-style checkpoint and a rich handoff for approval.
+2. **Rich handoff** — `/ms-handoff` drafts `.handoff.md` with objective, open threads, files touched, decisions, next actions, and anything post-compaction Slate would regret losing.
+3. **Pre-compact recent tail** — `session_before_compact` archives the live session and refreshes the `## RECENT TAIL (since rich handoff)` section mechanically from the JSONL tail.
+4. **Post-compact replay** — `session_compact` sets a replay flag; the next `before_agent_start` injects `.handoff.md` once as critical continuity context.
+5. **Deferred embed** — compaction and end-session paths run recall backfill after archive.
+
+Default policy:
+
+```text
+checkpointWarningPercent: 85
+compactTargetPercent: 92
+emergencyAutoHandoff: false
+```
+
+For the current validated `openai-codex/gpt-5.5` 272K context model, a 92% Pi auto-compact target maps to:
+
+```json
+"compaction": {
+  "enabled": true,
+  "reserveTokens": 21760,
+  "keepRecentTokens": 20000
+}
+```
+
+See [`docs/COMPACTION_POLICY.md`](docs/COMPACTION_POLICY.md) and `orchestrator/config/pi-compaction-settings.fragment.json`.
 
 This path is implemented, but it should still be validated on each Pi version because compaction surfaces are substrate-specific.
 
