@@ -171,7 +171,7 @@ mindstone-for-pi/
 
 ### Checkpoint and handoff
 
-- **`/ms-checkpoint`** — draft an MS4CC-style checkpoint for approval, including LOG entry, warranted memory docs/updates, and `MEMORY.md` index pointers; after approval write memory/index updates, append `LOG.md`, and verify archive/embed.
+- **`/ms-checkpoint`** — draft an MS4CC-style checkpoint for approval, including LOG entry, warranted memory docs/updates, and `MEMORY.md` index pointers; after checkpoint approval, write memory/index updates, append `LOG.md`, and verify archive/embed. A checkpoint approval covers the whole checkpoint bundle unless explicitly scoped otherwise.
 - **`/ms-handoff`** — draft a rich compaction handoff for `.handoff.md`.
 - **`/ms-end-session`** — archive the current Pi session, refresh `.handoff.md` recent tail, backfill vectors, and print recall status.
 
@@ -208,7 +208,7 @@ MS4PI registers Pi tools for the model:
 - `synapse_check` — read recent Synapse channel messages.
 - `synapse_await` — wait for a matching Synapse reply.
 
-The write tools are intentionally approval-gated by instruction. Do not use them for drafts.
+The write tools are intentionally approval-gated by instruction. Do not use them for drafts. For `/ms-checkpoint`, one checkpoint-bundle approval covers the approved LOG entry plus warranted memory/index writes unless Clint explicitly narrows the approval.
 
 ## Recall and embeddings
 

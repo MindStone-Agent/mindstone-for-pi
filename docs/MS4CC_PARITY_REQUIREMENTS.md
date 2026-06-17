@@ -138,7 +138,9 @@ Required LOG entry shape:
 
 Rules:
 
-- Draft first; ask user approval before appending or writing memory files.
+- Draft first; ask user approval for the checkpoint bundle before appending or writing memory files.
+- In checkpoint flow, a user approval such as “approved” applies to the drafted LOG entry, warranted memory docs/updates, and `MEMORY.md` index entries unless the user explicitly narrows the approval.
+- Memory files are the orchestrator’s continuity substrate; use orchestrator judgment for exact wording and placement after checkpoint approval, and ask the user only for real ambiguity, sensitivity, or scope risk.
 - Option D prevented-confirmation remains.
 - Semantic duplicate check before new memories remains.
 - New durable memories must become approved memory docs under `orchestrator/memory/`, not just LOG bullets.
@@ -150,7 +152,7 @@ Rules:
   - non-trivial decisions without canonical attribution
   - memory contradictions
   - artifact skips
-- Checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds.
+- Checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds. Do not require a second approval round for memory writes after checkpoint-bundle approval.
 
 ## Handoff structure
 
@@ -208,7 +210,7 @@ MS4CC current rule should carry over:
 
 - cheap transcript archive can happen often
 - expensive embedding should happen at checkpoint and post-compaction, not every turn
-- `/ms-checkpoint` writes approved memory docs/index entries when warranted, then runs archive + embed explicitly
+- `/ms-checkpoint` writes approved memory docs/index entries when warranted, then runs archive + embed explicitly; the checkpoint approval covers LOG plus warranted memory/index writes unless explicitly scoped otherwise
 - post-compaction runs deferred embed of the archived pre-compaction transcript
 
 MS4PI should not claim a checkpoint is complete unless the embed path prints/verifies success.

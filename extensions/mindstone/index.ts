@@ -656,7 +656,7 @@ export default function (pi: ExtensionAPI) {
     description: "Draft a MindStone checkpoint entry, memory docs, and index updates for approval",
     handler: async () => {
       pi.sendUserMessage(
-        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure.\n\nRequired protocol:\n1. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. For each durable new lesson/fact/design decision, first search existing memory with /ms-recall-search or mindstone_memory_search to avoid duplicates.\n3. If no suitable memory exists, draft a full memory file using the MS4CC frontmatter schema and a proposed MEMORY.md pointer/index entry. If a suitable memory exists, draft an update instead of a duplicate.\n4. Do not write files yet. Show Clint the exact LOG entry, each memory file body/update, and each MEMORY.md index entry. Ask for approval.\n5. After approval, use mindstone_memory_write for every approved new/updated memory and index pointer, then use mindstone_log_append to append the approved LOG entry.\n6. Run /ms-recall-backfill or /ms-end-session so archive/embed reindexes the transcript and changed memory files.\n\nA checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds. Target files: ${LOG_FILE} and ${MEMORY_DIR}.`
+        `Run a MindStone for Pi checkpoint using the MS4CC checkpoint structure.\n\nRequired protocol:\n1. Draft a concise LOG.md entry with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. For each durable new lesson/fact/design decision, first search existing memory with /ms-recall-search or mindstone_memory_search to avoid duplicates.\n3. If no suitable memory exists, draft a full memory file using the MS4CC frontmatter schema and a proposed MEMORY.md pointer/index entry. If a suitable memory exists, draft an update instead of a duplicate.\n4. Do not write files yet. Show Clint the checkpoint bundle: exact LOG entry, each warranted memory file body/update, and each MEMORY.md index entry. Ask for approval.\n5. In checkpoint flow, Clint's \"approved\" means the whole checkpoint bundle is approved: LOG entry plus warranted memory docs/updates and MEMORY.md index pointers, unless he explicitly narrows the approval.\n6. After approval, use judgment for final memory wording/placement if needed, use mindstone_memory_write for every approved new/updated memory and index pointer, then use mindstone_log_append to append the approved LOG entry.\n7. Run /ms-recall-backfill or /ms-end-session so archive/embed reindexes the transcript and changed memory files.\n\nA checkpoint is not complete unless approved memory docs/index updates are written when warranted, LOG.md is appended, and archive/embed verification succeeds. Do not require a second approval round for memory writes after checkpoint-bundle approval. Target files: ${LOG_FILE} and ${MEMORY_DIR}.`
       );
     },
   });
@@ -850,10 +850,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "mindstone_memory_write",
     label: "MindStone Memory Write",
-    description: "Write an approved MindStone memory file and optionally update MEMORY.md. Use only after explicit user approval.",
+    description: "Write an approved MindStone memory file and optionally update MEMORY.md. Use after explicit user approval or checkpoint-bundle approval.",
     promptSnippet: "Write approved MindStone memory files and MEMORY.md index pointers",
     promptGuidelines: [
-      "Use mindstone_memory_write only after the user explicitly approves the exact memory body/update and index entry.",
+      "Use mindstone_memory_write only after the user explicitly approves the memory body/update and index entry, or after a checkpoint-bundle approval that includes warranted memories.",
+      "For /ms-checkpoint, one approval covers the approved LOG plus warranted memory/index writes unless the user explicitly narrows the approval.",
       "Do not use mindstone_memory_write for drafts or speculative memories.",
       "Before creating a new memory, search existing memories for duplicates and prefer updates when appropriate.",
       "Checkpoint is incomplete if warranted memory docs/index updates are skipped.",

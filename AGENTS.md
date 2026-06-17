@@ -69,8 +69,9 @@ A checkpoint must follow the MS4CC pattern:
 3. Search existing memories first to avoid duplicates.
 4. Draft exact memory files or updates using the schema below.
 5. Draft exact `MEMORY.md` index/pointer updates.
-6. Ask Clint for approval before writing any LOG or memory files.
-7. After approval, write approved memory docs and index entries, append LOG, then run archive/embed verification.
+6. Ask Clint for approval of the checkpoint bundle before writing any LOG or memory files.
+7. In checkpoint flow, Clint’s “approved” means the drafted LOG plus warranted memory docs/updates and `MEMORY.md` index entries are approved, unless he explicitly narrows the approval.
+8. After approval, write approved memory docs and index entries, append LOG, then run archive/embed verification.
 
 A checkpoint is incomplete if it appends `LOG.md` but skips warranted memory docs or `MEMORY.md` index updates. If no new memory is warranted, say that explicitly in the checkpoint lint.
 
@@ -97,7 +98,7 @@ evergreen: false
 
 `critical: true` memories are injected in full. `evergreen: true` memories are always listed or considered. Later versions add weighted semantic recall.
 
-Memory files live in private state under `orchestrator/memory/`. `MEMORY.md` is the index and must be updated with a pointer when a new durable memory is approved.
+Memory files live in private state under `orchestrator/memory/`. `MEMORY.md` is the index and must be updated with a pointer when a new durable memory is approved. Memory content is the orchestrator’s continuity substrate; use judgment for wording and placement, and ask Clint only when there is real ambiguity, sensitivity, or scope risk.
 
 ## Destructive actions
 
