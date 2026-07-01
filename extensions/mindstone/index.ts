@@ -53,10 +53,12 @@ const COMPACTION_POLICY = {
 type Frontmatter = Record<string, string | number | boolean | string[] | null | undefined>;
 type MemoryFile = { path: string; name: string; frontmatter: Frontmatter; body: string; text: string };
 
+type HandoffSource = "compact" | "startup" | "resume";
+
 let activeRoleName: string | undefined;
 let activeRoleContext = "";
 let activeRoleStartedAt: string | undefined;
-let replayHandoffOnNextTurn = false;
+let pendingHandoffSource: HandoffSource | undefined;
 let compactionWatchdogPrompted = false;
 
 async function readTextIfExists(path: string): Promise<string> {
@@ -264,6 +266,7 @@ const NOISE_PREFIXES = [
   "<semantic-recall",
   "<mindstone-context",
   "<post-compaction-handoff",
+  "<session-handoff",
   "<context-capacity-handoff",
   "<precompact",
 ];
@@ -331,10 +334,16 @@ async function refreshHandoffTail(sessionFile: string | undefined): Promise<stri
   return `.handoff.md recent tail refreshed: ${HANDOFF_FILE}`;
 }
 
-async function readHandoffBlock(): Promise<string> {
+async function handoffBlock(source: HandoffSource): Promise<string> {
   const handoff = await readTextIfExists(HANDOFF_FILE);
   if (!handoff.trim()) return "";
-  return `<post-compaction-handoff priority="CRITICAL">\nYou just compacted or requested a handoff replay. Use this handoff before relying on the lossy compaction summary. Full file: ${HANDOFF_FILE}\n\n${handoff.trim()}\n</post-compaction-handoff>`;
+
+  const framing =
+    source === "compact"
+      ? "You just compacted or requested a handoff replay. Read this handoff first before relying on the lossy compaction summary."
+      : "This session started with an existing MindStone handoff. If you are continuing the prior work, use this handoff as the first-action/resume pointer. If the current request is unrelated, note the handoff briefly and proceed with the user's current task.";
+
+  return `<session-handoff source="${source}" priority="CRITICAL">\n${framing}\nFull file: ${HANDOFF_FILE}\n\n${handoff.trim()}\n</session-handoff>`;
 }
 
 function sessionFileFromContext(ctx: any): string | undefined {
@@ -388,9 +397,12 @@ async function appendMemoryIndexEntry(indexEntry: string): Promise<void> {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     const initialized = existsSync(ORCHESTRATOR_DIR);
     const hasIdentity = existsSync(IDENTITY_FILE);
+    if (event.reason === "startup" || event.reason === "resume") {
+      pendingHandoffSource = event.reason;
+    }
     if (!initialized) ctx.ui.notify("MindStone for Pi: run /ms-init to initialize.", "info");
     else if (!hasIdentity) ctx.ui.notify("MindStone for Pi: initialized but no identity. Run /ms-onboard for fresh onboarding.", "info");
     else ctx.ui.notify("MindStone for Pi identity loaded.", "info");
@@ -467,8 +479,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const mindstone = await buildMindStoneContext(ctx.cwd);
     const recall = await semanticRecallBlock(event.prompt ?? "");
-    const handoff = replayHandoffOnNextTurn ? await readHandoffBlock() : "";
-    replayHandoffOnNextTurn = false;
+    const handoffSource = pendingHandoffSource;
+    const handoff = handoffSource ? await handoffBlock(handoffSource) : "";
+    pendingHandoffSource = undefined;
     return { systemPrompt: `${event.systemPrompt}\n\n${handoff ? `${handoff}\n\n` : ""}${mindstone}${recall ? `\n\n${recall}` : ""}` };
   });
 
@@ -484,7 +497,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_compact", async (_event, ctx) => {
-    replayHandoffOnNextTurn = true;
+    pendingHandoffSource = "compact";
     compactionWatchdogPrompted = false;
     ctx.ui.notify("MindStone: compaction finished; .handoff.md will replay on the next model turn. Running deferred recall backfill.", "info");
     try {
