@@ -19,6 +19,7 @@ const USER_FILE = join(ORCHESTRATOR_DIR, "USER.md");
 const LOG_FILE = join(ORCHESTRATOR_DIR, "LOG.md");
 const MEMORY_INDEX_FILE = join(MEMORY_DIR, "MEMORY.md");
 const HANDOFF_FILE = join(TRANSCRIPTS_DIR, ".handoff.md");
+const AUTONOMOUS_CHECKPOINT_FILE = join(ORCHESTRATOR_DIR, "config", "autonomous-checkpoint.enabled");
 const RECENT_TAIL_MARKER = "## RECENT TAIL (since rich handoff)";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -47,7 +48,7 @@ const COMPACTION_POLICY = {
   checkpointWarningPercent: envNumber("MS4PI_CHECKPOINT_WARNING_PERCENT", 85, 1, 99),
   compactTargetPercent: envNumber("MS4PI_COMPACT_TARGET_PERCENT", 92, 1, 99),
   keepRecentTokens: envNumber("MS4PI_KEEP_RECENT_TOKENS", 20_000, 1_000, 1_000_000),
-  emergencyAutoHandoff: envBoolean("MS4PI_EMERGENCY_AUTO_HANDOFF", false),
+  emergencyAutoHandoff: envBoolean("MS4PI_EMERGENCY_AUTO_HANDOFF", existsSync(AUTONOMOUS_CHECKPOINT_FILE)),
 };
 
 type Frontmatter = Record<string, string | number | boolean | string[] | null | undefined>;
@@ -471,8 +472,12 @@ export default function (pi: ExtensionAPI) {
       nearCompactTarget ? "error" : "warning"
     );
 
+    const approvalMode = COMPACTION_POLICY.emergencyAutoHandoff
+      ? "Autonomous checkpoint/handoff mode is enabled by local config or MS4PI_EMERGENCY_AUTO_HANDOFF. Clint has delegated standing authority for continuity-preserving checkpoint, memory, handoff, archive, and backfill writes when context pressure requires them. Do not wait for a separate approval before writing the continuity bundle; report what was written afterward."
+      : "Approval-gated mode is enabled. Do not write LOG.md, memory files, MEMORY.md, or .handoff.md until Clint approves the checkpoint/handoff bundle.";
+
     pi.sendUserMessage(
-      `MindStone context watchdog fired.\n\n${policyLines.join("\n")}\n\nMechanical safety work already attempted:\n- ${archive.message}\n- ${tail}\n\nDraft a combined MindStone checkpoint and rich compaction handoff now. Preserve MS4CC structure. Do not write files until Clint approves.\n\nRequired draft outputs:\n1. A LOG.md checkpoint with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. A rich .handoff.md body with current objective, open threads, files/projects touched, decisions made, active role state, immediate next actions, and anything post-compaction Slate would regret losing.\n\nAfter approval, use mindstone_log_append and mindstone_handoff_write, then run /ms-recall-backfill or /ms-end-session so archive/embed is verified. A checkpoint without archive/embed verification is not complete.${nearCompactTarget ? "\n\nContext is already at or past the configured compaction target. After approved writes and archive/embed verification, recommend immediate compaction or allow Pi auto-compaction to proceed." : ""}`
+      `MindStone context watchdog fired.\n\n${policyLines.join("\n")}\n\nMechanical safety work already attempted:\n- ${archive.message}\n- ${tail}\n\nCreate a combined MindStone checkpoint and rich compaction handoff now. Preserve MS4CC structure. ${approvalMode}\n\nRequired outputs:\n1. A LOG.md checkpoint with title/date, scope, what happened, decisions made, memories cited, prevented confirmations, new memories proposed, drift flagged, and lint.\n2. Warranted memory docs/updates and MEMORY.md pointers when durable facts/design decisions would otherwise be lost.\n3. A rich .handoff.md body with current objective, open threads, files/projects touched, decisions made, active role state, immediate next actions, and anything post-compaction Slate would regret losing.\n4. Archive/embed verification via /ms-recall-backfill, /ms-end-session, or equivalent indexer/status commands.\n\nA checkpoint without warranted memory/index updates, LOG append, handoff write, and archive/embed verification is not complete.${nearCompactTarget ? "\n\nContext is already at or past the configured compaction target. After continuity writes and archive/embed verification, recommend immediate compaction or allow Pi auto-compaction to proceed." : ""}`
     );
   }
 

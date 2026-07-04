@@ -11,7 +11,7 @@ This is the Pi/Claude-style **auto checkpoint/handoff/compact** path. It is not 
 | `checkpointWarningPercent` | `85` | Prompt Slate to draft a checkpoint + rich handoff before compaction danger zone. |
 | `compactTargetPercent` | `92` | Target Pi native auto-compaction threshold. |
 | `keepRecentTokens` | `20000` | Pi native recent-token retention during compaction. |
-| `emergencyAutoHandoff` | `false` | Do not write LOG.md or `.handoff.md` without explicit approval. |
+| `emergencyAutoHandoff` | `false` unless local flag exists | Permit autonomous continuity-preserving checkpoint/handoff/memory/archive/backfill writes when context pressure requires them. |
 
 Environment overrides supported by the extension:
 
@@ -71,14 +71,18 @@ Do not blindly apply the `21760` value to a different model. For a different con
 2. At or above `85%`, MS4PI:
    - archives the live Pi session if resolvable,
    - refreshes `.handoff.md` recent tail mechanically,
-   - injects a user message asking Slate to draft both:
+   - injects a user message asking Slate to create both:
      - an MS4CC-style LOG checkpoint,
-     - a rich `.handoff.md` body.
-3. Slate must ask Clint for approval before writing memory files.
-4. After approval, Slate uses:
+     - warranted memory docs/index updates,
+     - a rich `.handoff.md` body,
+     - archive/embed verification.
+3. If `emergencyAutoHandoff` is disabled, Slate must ask Clint for approval before writing memory/LOG/handoff files.
+4. If `emergencyAutoHandoff` is enabled, Slate treats Clint's standing authorization as sufficient to write continuity-preserving checkpoint, memory/index, handoff, archive, and backfill artifacts, then reports what was written afterward.
+5. Slate uses the MindStone tools as appropriate:
+   - `mindstone_memory_write`
    - `mindstone_log_append`
    - `mindstone_handoff_write`
-5. Slate then runs `/ms-recall-backfill` or `/ms-end-session` so archive/embed is verified.
+   - `/ms-recall-backfill`, `/ms-end-session`, or equivalent indexer/status commands.
 6. At the native Pi threshold, Pi compaction runs.
 7. `session_before_compact` archives the live transcript and refreshes recent tail one more time.
 8. `session_compact` sets the replay flag and runs deferred recall backfill.
@@ -90,8 +94,24 @@ MindStone proper can keep a long-running active context in range by pruning olde
 
 MS4PI runs inside Pi and therefore uses Pi's compaction lifecycle instead of replacing Pi's prompt-window construction. MS4PI should keep this auto checkpoint/handoff/compact policy; sliding-window pruning belongs in MindStone-Agent's Core/Gateway runtime.
 
+## Autonomous continuity flag
+
+`emergencyAutoHandoff` can be enabled either with:
+
+```bash
+MS4PI_EMERGENCY_AUTO_HANDOFF=true
+```
+
+or by creating this local flag file:
+
+```text
+~/.pi/agent/mindstone/orchestrator/config/autonomous-checkpoint.enabled
+```
+
+The local flag is intentionally outside the public package checkout. It lets a trusted local operator delegate checkpoint/handoff autonomy without changing the public default.
+
 ## Safety stance
 
 By default, MS4PI does **not** write rich checkpoint/handoff content without approval. Pi has a real `session_before_compact` hook, so the mechanical last-chance path can still archive the session and refresh recent tail before compaction.
 
-If Clint later authorizes emergency auto-write semantics, `MS4PI_EMERGENCY_AUTO_HANDOFF` can become the policy switch, but that behavior should be explicitly designed and tested before claiming parity.
+When autonomous mode is enabled, the scope is still limited to continuity-preserving artifacts: memory docs/index entries, LOG checkpoints, `.handoff.md`, transcript archive, and recall backfill/status verification. It is not authorization for destructive git operations, credential changes, database changes, or unrelated file cleanup.
