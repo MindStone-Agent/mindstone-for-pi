@@ -27,7 +27,16 @@ const PACKAGE_ONBOARDING_DIR = join(PACKAGE_ROOT, "onboarding");
 const PACKAGE_HOOKS_DIR = join(PACKAGE_ROOT, "orchestrator", "hooks");
 const PACKAGE_VENV_PYTHON = join(PACKAGE_ROOT, "orchestrator", ".venv", "bin", "python");
 
-const CONTEXT_BUDGET_CHARS = 50_000;
+// 80,000 (~20k tokens). Chosen by measurement on the MS4CC reference store, not by
+// feel: with the invariant split the always-inject block lands around 58k, which
+// overflows 50k and fits 80k with headroom — and headroom matters because this
+// degrades FASTER than it grows (a bigger store means more rules competing for a
+// fixed budget, so coverage falls as the store rises).
+//
+// Override per install with MS4PI_CONTEXT_BUDGET_CHARS. Any store materially larger
+// than the reference should set its own from measured utilisation rather than
+// inheriting this number.
+const CONTEXT_BUDGET_CHARS = 80_000;
 const LOG_TAIL_LINES = 60;
 
 function envNumber(name: string, fallback: number, min: number, max: number): number {
@@ -99,17 +108,88 @@ function parseScalar(value: string): string | number | boolean | string[] | null
   return trimmed.replace(/^['\"]|['\"]$/g, "");
 }
 
+// Keys whose indented children are lifted into the flat namespace.
+// Two frontmatter schemas are in circulation: flat (`critical: true` at column 0)
+// and nested (`metadata:` / `  critical: true`). A parser anchored at column 0
+// skips every indented line, so a nested `critical: true` was silently discarded
+// and the memory never injected — while the index still listed it as always-loaded.
+// MS4CC measured 63 of 291 files using the nested schema, FOUR of them critical.
+const LIFTED_NESTED_KEYS = ["metadata"];
+
+// `>` folds newlines to spaces, `|` keeps them; trailing `-`/`+` control chomping.
+// Without this, `invariant: >` parses to the literal string ">" — a value that
+// reports as PRESENT while carrying no rule, which is the exact false positive the
+// invariant tier exists to eliminate.
+const BLOCK_STYLES = [">", "|", ">-", "|-", ">+", "|+"];
+
 function parseFrontmatter(text: string): { frontmatter: Frontmatter; body: string } {
   if (!text.startsWith("---\n")) return { frontmatter: {}, body: text };
   const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) return { frontmatter: {}, body: text };
 
   const frontmatter: Frontmatter = {};
+  const nested: Record<string, Frontmatter> = {};
+  let currentNested: string | null = null;
+  let block: { key: string; style: string; lines: string[] } | null = null;
+
+  const closeBlock = () => {
+    if (!block) return;
+    const trimmed = block.lines.map((l) => l.trim());
+    while (trimmed.length && !trimmed[trimmed.length - 1]) trimmed.pop();
+    frontmatter[block.key] = block.style.startsWith("|")
+      ? trimmed.join("\n").trim()
+      : trimmed.filter(Boolean).join(" ").trim();
+    block = null;
+  };
+
   for (const line of match[1].split("\n")) {
+    const indented = /^\s/.test(line);
+
+    if (block) {
+      if (indented || !line.trim()) { block.lines.push(line); continue; }
+      closeBlock();
+    }
+    if (!line.trim()) continue;
+
+    if (indented) {
+      if (!currentNested) continue;
+      const child = line.match(/^\s+([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+      if (!child) continue;
+      nested[currentNested][child[1]] = parseScalar(child[2]);
+      continue;
+    }
+
     const parsed = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
-    if (!parsed) continue;
-    frontmatter[parsed[1]] = parseScalar(parsed[2]);
+    if (!parsed) { currentNested = null; continue; }
+    const key = parsed[1];
+    const raw = parsed[2].trim();
+
+    if (BLOCK_STYLES.includes(raw)) {
+      block = { key, style: raw, lines: [] };
+      currentNested = null;
+      continue;
+    }
+
+    frontmatter[key] = parseScalar(raw);
+    if (raw === "") {
+      currentNested = key;
+      nested[key] = nested[key] ?? {};
+    } else {
+      currentNested = null;
+    }
   }
+  closeBlock();
+
+  // Lift nested children. A top-level key always wins: an explicit `critical: false`
+  // at column 0 is not overridden by a nested `critical: true`.
+  for (const container of LIFTED_NESTED_KEYS) {
+    const children = nested[container];
+    if (!children) continue;
+    for (const [k, v] of Object.entries(children)) {
+      if (frontmatter[k] === undefined || frontmatter[k] === null) frontmatter[k] = v;
+    }
+  }
+
   return { frontmatter, body: match[2] };
 }
 
@@ -122,21 +202,133 @@ function tailLines(text: string, count: number): string {
   return lines.slice(Math.max(0, lines.length - count)).join("\n");
 }
 
-function trimToBudget(parts: string[], budget: number): string {
-  const kept: string[] = [];
+// ---------------------------------------------------------------------------
+// Admission — per item, by declared precedence, whole-or-not-at-all
+// ---------------------------------------------------------------------------
+// This replaces a positional trim that sliced the first overflowing part mid-text
+// and then `break`-ed, dropping everything after it regardless of importance.
+// Worse here than in MS4CC: every critical memory was concatenated into ONE part,
+// so a single overflow lost the entire constitution at once.
+//
+// Tier numbers are a POLICY, stated here. The invariants outrank the index, and
+// the index outranks full narrative bodies: knowing WHAT EXISTS is what makes a
+// partial constitution recoverable, because an agent that can see a rule's name
+// can go read the file. An agent missing the index does not know to look.
+const TIER_HEADER = 5;
+const TIER_IDENTITY = 10;   // required — an agent without identity is a different agent
+const TIER_USER = 20;       // required
+const TIER_INVARIANT = 25;  // the constitution: the binding rule of every critical
+const TIER_INDEX = 30;      // what exists at all
+const TIER_ROLE = 35;
+const TIER_CRITICAL = 40;   // full narrative bodies — only if budget remains
+const TIER_EVERGREEN = 50;  // pointers
+const TIER_LOG = 70;
+
+interface ContextItem {
+  tier: number;
+  text: string;
+  label: string;
+  required?: boolean;
+  bullet?: boolean;
+}
+
+interface AssemblyReport {
+  budget: number;
+  used: number;
+  invariantsTotal: number;
+  invariantsAdmitted: number;
+  missingInvariants: string[];
+  indexPresent: boolean;
+  bodiesTotal: number;
+  bodiesAdmitted: number;
+  deferred: number;
+  constitutionComplete: boolean;
+}
+
+const SEP = "\n\n---\n\n";
+
+function admit(items: ContextItem[], budget: number): { text: string; report: AssemblyReport } {
+  const sorted = [...items].sort((a, b) => a.tier - b.tier);
+  const admitted: ContextItem[] = [];
+  const omitted: ContextItem[] = [];
   let used = 0;
-  for (const part of parts) {
-    const next = part.trim();
-    if (!next) continue;
-    if (used + next.length > budget) {
-      const remaining = budget - used;
-      if (remaining > 500) kept.push(next.slice(0, remaining) + "\n\n[MindStone context truncated to budget]");
-      break;
+
+  for (const item of sorted) {
+    const cost = item.text.length + (admitted.length ? SEP.length : 0);
+    if (item.required || used + cost <= budget) {
+      admitted.push(item);
+      used += cost;
+    } else {
+      omitted.push(item);
     }
-    kept.push(next);
-    used += next.length;
   }
-  return kept.join("\n\n---\n\n");
+
+  const invTotal = items.filter((i) => i.tier === TIER_INVARIANT).length;
+  const invOk = admitted.filter((i) => i.tier === TIER_INVARIANT).length;
+  const missingInvariants = omitted.filter((i) => i.tier === TIER_INVARIANT).map((i) => i.label);
+  const indexPresent = !omitted.some((i) => i.tier === TIER_INDEX);
+
+  const report: AssemblyReport = {
+    budget,
+    used,
+    invariantsTotal: invTotal,
+    invariantsAdmitted: invOk,
+    missingInvariants,
+    indexPresent,
+    bodiesTotal: items.filter((i) => i.tier === TIER_CRITICAL).length,
+    bodiesAdmitted: admitted.filter((i) => i.tier === TIER_CRITICAL).length,
+    deferred: omitted.length,
+    constitutionComplete: missingInvariants.length === 0 && indexPresent,
+  };
+
+  const HEADINGS: Record<number, string> = {
+    [TIER_INVARIANT]:
+      "## CONSTITUTION (binding rules — always applied)\n" +
+      "_Each line is the rule itself. The incident that earned it lives in the named file and is retrievable._",
+    [TIER_CRITICAL]:
+      "## CRITICAL MEMORIES (full text — the narrative behind the rules above)\n" +
+      "_Present only as budget allowed. Absence here is not absence of the rule._",
+  };
+
+  // Bullets accumulate into one block so the constitution reads as a single list
+  // rather than N sections separated by horizontal rules.
+  const parts: string[] = [];
+  let group: string[] = [];
+  const seen = new Set<number>();
+  const flush = () => { if (group.length) { parts.push(group.join("\n")); group = []; } };
+
+  for (const item of admitted) {
+    if (HEADINGS[item.tier] && !seen.has(item.tier)) { flush(); parts.push(HEADINGS[item.tier]); }
+    seen.add(item.tier);
+    if (item.bullet) group.push(item.text);
+    else { flush(); parts.push(item.text); }
+  }
+  flush();
+
+  let text = parts.join(SEP);
+
+  // Loud only where it can act. Assembly NEVER aborts: a session that boots with a
+  // partial constitution can compensate; one that boots empty cannot, and cannot
+  // even read the error, because the error is in the thing that failed to load.
+  if (missingInvariants.length || !indexPresent) {
+    const names = missingInvariants.slice(0, 12).map((n) => `\`${n}\``).join(", ");
+    const more = missingInvariants.length > 12 ? ` (+${missingInvariants.length - 12} more)` : "";
+    const lines = [`## ⚠ INCOMPLETE CONSTITUTION — ${missingInvariants.length} binding rule(s) did not fit the ${budget.toLocaleString()}-char budget`];
+    if (missingInvariants.length) {
+      lines.push(`**RULES NOT LOADED:** ${names}${more}`);
+      lines.push("Read them from the memory directory before acting on anything they cover, and say so rather than guessing.");
+    }
+    if (!indexPresent) lines.push("**The memory index did not load** — I cannot see what else exists.");
+    text = lines.join("\n") + "\n" + SEP + text;
+  } else if (omitted.length) {
+    text =
+      `## Context note — constitution complete, ${omitted.length} narrative item(s) deferred\n` +
+      `All ${invTotal} binding rules are loaded above. ${report.bodiesAdmitted} of ${report.bodiesTotal} full narratives fit; ` +
+      `the rest remain on disk and retrievable. Nothing was cut mid-file.\n` +
+      SEP + text;
+  }
+
+  return { text, report };
 }
 
 async function loadMemories(): Promise<MemoryFile[]> {
@@ -188,44 +380,79 @@ async function initializeScaffold(): Promise<string[]> {
   return created;
 }
 
+export let lastAssembly: AssemblyReport | null = null;
+
 async function buildMindStoneContext(cwd: string): Promise<string> {
-  const parts: string[] = [];
+  const items: ContextItem[] = [];
   const identity = await readTextIfExists(IDENTITY_FILE);
   const user = await readTextIfExists(USER_FILE);
   const log = await readTextIfExists(LOG_FILE);
   const memories = await loadMemories();
 
-  parts.push(`# MindStone for Pi\n\nData root: ${DATA_ROOT}\nCurrent working directory: ${cwd}`);
+  const add = (tier: number, text: string, label: string, opts: { required?: boolean; bullet?: boolean } = {}) => {
+    if (text && text.trim()) items.push({ tier, text: text.trim(), label, ...opts });
+  };
 
+  add(TIER_HEADER, `# MindStone for Pi\n\nData root: ${DATA_ROOT}\nCurrent working directory: ${cwd}`, "header", { required: true });
+
+  // Identity and user are REQUIRED — admitted even if they exceed the budget on
+  // their own. An agent without its identity is not a degraded agent, it is a
+  // different one. The overage is reported rather than silently absorbed.
   if (identity) {
-    parts.push(`## IDENTITY\n${identity}`);
+    add(TIER_IDENTITY, `## IDENTITY\n${identity}`, "IDENTITY", { required: true });
   } else {
-    parts.push(
-      `## FIRST-RUN / STATELESS MODE\nNo MindStone identity exists yet at ${IDENTITY_FILE}. Run /ms-init, then /ms-onboard if the user wants persistent identity. Until then, do not claim persistent identity or memory continuity.`
-    );
+    add(TIER_IDENTITY,
+      `## FIRST-RUN / STATELESS MODE\nNo MindStone identity exists yet at ${IDENTITY_FILE}. Run /ms-init, then /ms-onboard if the user wants persistent identity. Until then, do not claim persistent identity or memory continuity.`,
+      "FIRST-RUN", { required: true });
   }
+  if (user) add(TIER_USER, `## USER\n${user}`, "USER", { required: true });
 
-  if (user) parts.push(`## USER\n${user}`);
-
+  // Critical memories inject in TWO tiers: the binding rule always, the narrative
+  // only if room remains. A file with no invariant falls back to full body AT the
+  // invariant tier — it is unmigrated, not exempt, and dropping it silently would
+  // be the failure this design exists to prevent.
   const critical = memories.filter((m) => hasFlag(m.frontmatter, "critical") && m.name !== "MEMORY.md");
-  if (critical.length > 0) {
-    parts.push(["## CRITICAL MEMORIES", ...critical.map((m) => `### ${m.name}\n${m.body.trim()}`)].join("\n\n"));
+  for (const m of critical) {
+    const invariant = typeof m.frontmatter.invariant === "string" ? m.frontmatter.invariant.trim() : "";
+    const desc = typeof m.frontmatter.description === "string" ? m.frontmatter.description : m.name;
+    if (invariant) {
+      add(TIER_INVARIANT, `- **\`${m.name}\`** — ${invariant}`, m.name, { bullet: true });
+      add(TIER_CRITICAL, `### ${m.name} — ${desc}\n${m.body.trim()}`, m.name);
+    } else {
+      add(TIER_INVARIANT, `### ${m.name} — ${desc}\n${m.body.trim()}`, m.name);
+    }
   }
+
+  // The memory index — previously not injected at ALL on this branch, so the agent
+  // had no map of its own store and could not tell "I have no memory of that" from
+  // "I cannot see my memory".
+  const indexText = await readTextIfExists(join(MEMORY_DIR, "MEMORY.md"));
+  if (indexText) add(TIER_INDEX, `## MEMORY INDEX (all available memories)\n${indexText}`, "MEMORY INDEX");
 
   const evergreen = memories.filter((m) => !hasFlag(m.frontmatter, "critical") && hasFlag(m.frontmatter, "evergreen"));
   if (evergreen.length > 0) {
-    parts.push(
-      ["## EVERGREEN MEMORY POINTERS", ...evergreen.map((m) => `- ${m.name}${m.frontmatter.description ? ` — ${m.frontmatter.description}` : ""}`)].join("\n")
-    );
+    add(TIER_EVERGREEN,
+      ["## EVERGREEN MEMORY POINTERS", ...evergreen.map((m) => `- ${m.name}${m.frontmatter.description ? ` — ${m.frontmatter.description}` : ""}`)].join("\n"),
+      "EVERGREEN");
   }
 
   if (activeRoleName && activeRoleContext) {
-    parts.push(`## ACTIVE ROLE ADOPTION: ${activeRoleName}\nStarted: ${activeRoleStartedAt}\n\n${activeRoleContext}`);
+    add(TIER_ROLE, `## ACTIVE ROLE ADOPTION: ${activeRoleName}\nStarted: ${activeRoleStartedAt}\n\n${activeRoleContext}`, "ROLE");
+  }
+  if (log) add(TIER_LOG, `## RECENT LOG TAIL\n${tailLines(log, LOG_TAIL_LINES)}`, "LOG");
+
+  const budget = envNumber("MS4PI_CONTEXT_BUDGET_CHARS", CONTEXT_BUDGET_CHARS, 1_000, 500_000);
+  const { text, report } = admit(items, budget);
+  lastAssembly = report;
+
+  if (!report.constitutionComplete) {
+    console.error(
+      `[mindstone] CONSTITUTION INCOMPLETE: ${report.missingInvariants.length} invariant(s) omitted at ` +
+      `${budget} chars (${report.used} used)${report.indexPresent ? "" : "; index dropped"}.`
+    );
   }
 
-  if (log) parts.push(`## RECENT LOG TAIL\n${tailLines(log, LOG_TAIL_LINES)}`);
-
-  return `<mindstone-context>\n${trimToBudget(parts, CONTEXT_BUDGET_CHARS)}\n</mindstone-context>`;
+  return `<mindstone-context>\n${text}\n</mindstone-context>`;
 }
 
 async function listRoleNames(): Promise<string[]> {
